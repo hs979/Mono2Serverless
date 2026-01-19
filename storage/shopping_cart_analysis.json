@@ -1,0 +1,418 @@
+{
+  "project_structure": "shopping-cart/\n├── app.py\n├── auth.py\n├── dynamodb.py\n├── load_products.py\n├── Makefile\n├── models.py\n├── product_list.json\n├── README.md\n├── requirements.txt\n├── shopping_cart.db\n└── start_local_dev.bat",
+  "entry_points": [
+    {
+      "file": "app.py",
+      "method": "POST",
+      "path": "/auth/register",
+      "handler": "register"
+    },
+    {
+      "file": "app.py",
+      "method": "POST",
+      "path": "/auth/login",
+      "handler": "login"
+    },
+    {
+      "file": "app.py",
+      "method": "GET",
+      "path": "/product",
+      "handler": "get_products"
+    },
+    {
+      "file": "app.py",
+      "method": "GET",
+      "path": "/product/<product_id>",
+      "handler": "get_product"
+    },
+    {
+      "file": "app.py",
+      "method": "GET",
+      "path": "/cart",
+      "handler": "list_cart"
+    },
+    {
+      "file": "app.py",
+      "method": "POST",
+      "path": "/cart",
+      "handler": "add_to_cart"
+    },
+    {
+      "file": "app.py",
+      "method": "PUT",
+      "path": "/cart/<product_id>",
+      "handler": "update_cart"
+    },
+    {
+      "file": "app.py",
+      "method": "POST",
+      "path": "/cart/migrate",
+      "handler": "migrate_cart"
+    },
+    {
+      "file": "app.py",
+      "method": "POST",
+      "path": "/cart/checkout",
+      "handler": "checkout_cart"
+    },
+    {
+      "file": "app.py",
+      "method": "GET",
+      "path": "/cart/<product_id>/total",
+      "handler": "get_cart_total"
+    },
+    {
+      "file": "app.py",
+      "method": "GET",
+      "path": "/",
+      "handler": "serve_frontend"
+    },
+    {
+      "file": "app.py",
+      "method": "GET",
+      "path": "/<path:path>",
+      "handler": "serve_frontend"
+    }
+  ],
+  "dependency_graph": {
+    "app.py": [
+      "auth",
+      "datetime",
+      "dynamodb",
+      "flask",
+      "flask_cors",
+      "functools",
+      "json",
+      "models",
+      "os",
+      "uuid"
+    ],
+    "auth.py": [
+      "datetime",
+      "jwt",
+      "os",
+      "werkzeug.security"
+    ],
+    "dynamodb.py": [
+      "boto3",
+      "botocore.exceptions",
+      "flask",
+      "os"
+    ],
+    "load_products.py": [
+      "datetime",
+      "dynamodb",
+      "json",
+      "os",
+      "traceback"
+    ],
+    "models.py": [
+      "auth",
+      "boto3.dynamodb.conditions",
+      "botocore.exceptions",
+      "datetime",
+      "decimal",
+      "dynamodb",
+      "json",
+      "uuid"
+    ]
+  },
+  "file_tags": {
+    "app.py": [
+      "Auth",
+      "DynamoDB"
+    ],
+    "auth.py": [
+      "Auth"
+    ],
+    "dynamodb.py": [
+      "AWS_SDK",
+      "DynamoDB"
+    ],
+    "load_products.py": [
+      "DynamoDB"
+    ],
+    "models.py": [
+      "AWS_SDK",
+      "DynamoDB"
+    ]
+  },
+  "symbol_table": [
+    {
+      "id": "app.get_cart_id_from_cookie",
+      "file_path": "app.py",
+      "start_line": 51,
+      "end_line": 58
+    },
+    {
+      "id": "app.set_cart_cookie",
+      "file_path": "app.py",
+      "start_line": 61,
+      "end_line": 72
+    },
+    {
+      "id": "app.login_required",
+      "file_path": "app.py",
+      "start_line": 75,
+      "end_line": 94
+    },
+    {
+      "id": "app.decorated_function",
+      "file_path": "app.py",
+      "start_line": 78,
+      "end_line": 92
+    },
+    {
+      "id": "app.get_user_identifier",
+      "file_path": "app.py",
+      "start_line": 97,
+      "end_line": 109
+    },
+    {
+      "id": "app.register",
+      "file_path": "app.py",
+      "start_line": 115,
+      "end_line": 135
+    },
+    {
+      "id": "app.login",
+      "file_path": "app.py",
+      "start_line": 139,
+      "end_line": 161
+    },
+    {
+      "id": "app.get_products",
+      "file_path": "app.py",
+      "start_line": 167,
+      "end_line": 169
+    },
+    {
+      "id": "app.get_product",
+      "file_path": "app.py",
+      "start_line": 173,
+      "end_line": 180
+    },
+    {
+      "id": "app.list_cart",
+      "file_path": "app.py",
+      "start_line": 186,
+      "end_line": 204
+    },
+    {
+      "id": "app.add_to_cart",
+      "file_path": "app.py",
+      "start_line": 208,
+      "end_line": 247
+    },
+    {
+      "id": "app.update_cart",
+      "file_path": "app.py",
+      "start_line": 251,
+      "end_line": 304
+    },
+    {
+      "id": "app.migrate_cart",
+      "file_path": "app.py",
+      "start_line": 309,
+      "end_line": 333
+    },
+    {
+      "id": "app.checkout_cart",
+      "file_path": "app.py",
+      "start_line": 338,
+      "end_line": 364
+    },
+    {
+      "id": "app.get_cart_total",
+      "file_path": "app.py",
+      "start_line": 368,
+      "end_line": 378
+    },
+    {
+      "id": "app.serve_frontend",
+      "file_path": "app.py",
+      "start_line": 385,
+      "end_line": 405
+    },
+    {
+      "id": "app.internal_error",
+      "file_path": "app.py",
+      "start_line": 411,
+      "end_line": 413
+    },
+    {
+      "id": "auth.create_token",
+      "file_path": "auth.py",
+      "start_line": 17,
+      "end_line": 36
+    },
+    {
+      "id": "auth.verify_token",
+      "file_path": "auth.py",
+      "start_line": 39,
+      "end_line": 59
+    },
+    {
+      "id": "auth.hash_password",
+      "file_path": "auth.py",
+      "start_line": 62,
+      "end_line": 72
+    },
+    {
+      "id": "auth.verify_password",
+      "file_path": "auth.py",
+      "start_line": 75,
+      "end_line": 86
+    },
+    {
+      "id": "dynamodb.get_dynamodb_client",
+      "file_path": "dynamodb.py",
+      "start_line": 19,
+      "end_line": 38
+    },
+    {
+      "id": "dynamodb.get_dynamodb_resource",
+      "file_path": "dynamodb.py",
+      "start_line": 41,
+      "end_line": 60
+    },
+    {
+      "id": "dynamodb.get_table",
+      "file_path": "dynamodb.py",
+      "start_line": 63,
+      "end_line": 66
+    },
+    {
+      "id": "dynamodb.init_dynamodb",
+      "file_path": "dynamodb.py",
+      "start_line": 69,
+      "end_line": 146
+    },
+    {
+      "id": "dynamodb.close_connection",
+      "file_path": "dynamodb.py",
+      "start_line": 149,
+      "end_line": 153
+    },
+    {
+      "id": "load_products.load_products_to_dynamodb",
+      "file_path": "load_products.py",
+      "start_line": 13,
+      "end_line": 52
+    },
+    {
+      "id": "models._python_obj_to_dynamodb",
+      "file_path": "models.py",
+      "start_line": 19,
+      "end_line": 31
+    },
+    {
+      "id": "models._dynamodb_to_python_obj",
+      "file_path": "models.py",
+      "start_line": 34,
+      "end_line": 50
+    },
+    {
+      "id": "models.create_user",
+      "file_path": "models.py",
+      "start_line": 55,
+      "end_line": 93
+    },
+    {
+      "id": "models.get_user_by_username",
+      "file_path": "models.py",
+      "start_line": 96,
+      "end_line": 121
+    },
+    {
+      "id": "models.get_user_by_id",
+      "file_path": "models.py",
+      "start_line": 124,
+      "end_line": 148
+    },
+    {
+      "id": "models.get_cart_items",
+      "file_path": "models.py",
+      "start_line": 153,
+      "end_line": 205
+    },
+    {
+      "id": "models.add_cart_item",
+      "file_path": "models.py",
+      "start_line": 208,
+      "end_line": 249
+    },
+    {
+      "id": "models.update_cart_item_quantity",
+      "file_path": "models.py",
+      "start_line": 252,
+      "end_line": 290
+    },
+    {
+      "id": "models.delete_cart_items",
+      "file_path": "models.py",
+      "start_line": 293,
+      "end_line": 319
+    },
+    {
+      "id": "models.migrate_cart_items",
+      "file_path": "models.py",
+      "start_line": 322,
+      "end_line": 405
+    },
+    {
+      "id": "models.get_product_total_quantity",
+      "file_path": "models.py",
+      "start_line": 410,
+      "end_line": 436
+    },
+    {
+      "id": "models.update_product_total_quantity",
+      "file_path": "models.py",
+      "start_line": 439,
+      "end_line": 488
+    },
+    {
+      "id": "models.cleanup_expired_items",
+      "file_path": "models.py",
+      "start_line": 493,
+      "end_line": 521
+    }
+  ],
+  "config_info": {
+    "python_dependencies": [
+      {
+        "name": "Flask",
+        "version": "3.0.0"
+      },
+      {
+        "name": "Flask-CORS",
+        "version": "4.0.0"
+      },
+      {
+        "name": "Flask-Login",
+        "version": "0.5.0"
+      },
+      {
+        "name": "Flask-Migrate",
+        "version": "2.5.3"
+      },
+      {
+        "name": "python-dotenv",
+        "version": "0.21.0"
+      },
+      {
+        "name": "PyJWT",
+        "version": "2.6.0"
+      },
+      {
+        "name": "Werkzeug",
+        "version": "3.0.1"
+      },
+      {
+        "name": "boto3",
+        "version": "1.34.0"
+      }
+    ]
+  }
+}

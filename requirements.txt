@@ -1,0 +1,9 @@
+crewai
+llama-index-core
+llama-index-embeddings-huggingface
+tree-sitter
+tree-sitter-languages
+langchain
+cfn-lint
+pyyaml
+

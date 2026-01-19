@@ -1,0 +1,25 @@
+tasks:
+  - id: architect_blueprint
+    agent: architect
+    description: "Read storage/analysis_report.json and generate blueprint.json"
+    input:
+      analysis_report_path: "storage/analysis_report.json"
+    output:
+      blueprint_path: "storage/blueprint.json"
+
+  - id: infra_template
+    agent: infra_engineer
+    description: "Read blueprint.json and generate template.yaml"
+    input:
+      blueprint_path: "storage/blueprint.json"
+    output:
+      template_path: "storage/template.yaml"
+
+  - id: code_generation
+    agent: code_developer
+    description: "Implement Lambda handlers based on blueprint.json"
+    input:
+      blueprint_path: "storage/blueprint.json"
+    output:
+      code_root: "output/src"
+
