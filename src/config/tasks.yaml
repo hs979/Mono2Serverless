@@ -1,25 +1,159 @@
 tasks:
+  # Task 1: 架构设计 - 分析单体应用并设计完整的serverless架构
   - id: architect_blueprint
     agent: architect
-    description: "Read storage/analysis_report.json and generate blueprint.json"
-    input:
-      analysis_report_path: "storage/analysis_report.json"
-    output:
-      blueprint_path: "storage/blueprint.json"
+    description: |
+      Read storage/analysis_report.json and design a comprehensive serverless
+      application architecture. Output a detailed blueprint.json covering:
+      
+      1. Backend Architecture:
+         - Lambda functions grouped by domain (user, order, payment, etc.)
+         - Step Functions for service orchestration (if needed)
+         - Shared Lambda layers for common utilities
+      
+      2. Frontend Architecture:
+         - Files requiring migration (API consumers, configs)
+         - Files to copy unchanged (UI components)
+         - New configuration files needed (.env.example, aws-exports.js)
+      
+      3. Data Architecture:
+         - DynamoDB table schemas (directly from analysis_report)
+         - Table relationships and indexes
+      
+      4. Authentication Strategy:
+         - Cognito User Pools configuration (if auth detected)
+         - Frontend integration approach
+      
+      5. API Gateway Configuration:
+         - REST API design
+         - CORS settings for frontend
+         - Stages (dev, prod)
+      
+      The blueprint should provide a complete migration roadmap without
+      implementation details.
+    expected_output: "A complete blueprint.json file at storage/blueprint.json with backend, frontend, data, and auth architecture"
+    output_file: "storage/blueprint.json"
 
-  - id: infra_template
-    agent: infra_engineer
-    description: "Read blueprint.json and generate template.yaml"
-    input:
-      blueprint_path: "storage/blueprint.json"
-    output:
-      template_path: "storage/template.yaml"
-
-  - id: code_generation
+  # Task 2: 完整应用代码生成 - 生成可部署的serverless应用
+  - id: generate_complete_application
     agent: code_developer
-    description: "Implement Lambda handlers based on blueprint.json"
-    input:
-      blueprint_path: "storage/blueprint.json"
-    output:
-      code_root: "output/src"
+    description: |
+      Based on blueprint.json, generate a COMPLETE serverless application including:
+      
+      BACKEND COMPONENTS:
+      1. Lambda Functions:
+         - Create handler.py (or .js) for each Lambda in output/backend/lambdas/{name}/
+         - Transform monolith routes to lambda_handler(event, context) functions
+         - Convert database calls to DynamoDB boto3 operations
+         - Add requirements.txt with dependencies
+      
+      2. Shared Utilities:
+         - Extract common code to output/backend/shared/
+         - Create Lambda layer structure in output/backend/layers/
+      
+      3. Step Functions (if needed):
+         - Generate .asl.json state machine definitions in output/backend/statemachines/
+      
+      FRONTEND COMPONENTS:
+      1. Migrate API Client Code:
+         - Replace hardcoded URLs with environment variables
+         - Update API call formats for API Gateway
+         - Add Cognito authentication integration
+         - Write to output/frontend/src/
+      
+      2. Configuration Files:
+         - Create .env.example with all required variables
+         - Create aws-exports.js for Amplify (if Cognito used)
+      
+      3. Copy UI Components:
+         - Copy unchanged components from monolith
+      
+      DOCUMENTATION:
+      - Create output/README.md with deployment guide
+      
+      PROCESS:
+      - Use ReadFileTool to read monolith source code from file mappings
+      - Use CodeRAGTool to discover dependencies and utility functions
+      - Use WriteFileTool to create the complete directory structure
+      
+      CRITICAL: Preserve all business logic exactly as in monolith.
+      Generate complete, runnable files, not code snippets.
+    expected_output: "A complete serverless application in output/ directory with backend/, frontend/, and README.md, ready for SAM deployment"
+
+  # Task 3: SAM模板生成 - 为生成的应用创建基础设施定义
+  - id: generate_sam_templates
+    agent: sam_engineer
+    description: |
+      Analyze the generated application code in output/ directory and blueprint.json,
+      then generate AWS SAM templates that perfectly match the code structure.
+      
+      STEP 1: CODE ANALYSIS
+      - Use FileListTool to scan output/backend/lambdas/ directory
+      - For each Lambda directory found:
+        * Read handler.py or handler.js to extract handler function name
+        * Read requirements.txt or package.json for dependencies
+        * Determine runtime (python3.11, nodejs18.x, etc.)
+      
+      STEP 2: MAIN TEMPLATE GENERATION
+      Create output/infrastructure/template.yaml with:
+      
+      1. Globals Section:
+         - Default Lambda settings (timeout, memory, runtime)
+         - API Gateway CORS configuration
+      
+      2. Parameters:
+         - Environment (dev/prod)
+         - Any configurable values
+      
+      3. Lambda Functions:
+         - AWS::Serverless::Function for EACH discovered Lambda
+         - CodeUri pointing to actual code location
+         - Handler matching discovered handler name
+         - Environment variables referencing DynamoDB tables (!Ref)
+         - IAM policies (DynamoDBCrudPolicy, etc.)
+         - API Gateway events for each route
+      
+      4. DynamoDB Tables:
+         - AWS::DynamoDB::Table for each table in blueprint
+         - Partition key, sort key, GSI from blueprint schema
+         - BillingMode: PAY_PER_REQUEST
+      
+      5. Step Functions (if statemachines/ exists):
+         - AWS::Serverless::StateMachine
+         - DefinitionUri pointing to .asl.json files
+      
+      6. Lambda Layers (if layers/ exists):
+         - AWS::Serverless::LayerVersion for shared code
+      
+      7. Outputs:
+         - API Gateway endpoint URL
+         - DynamoDB table names
+         - Other resource identifiers for frontend configuration
+      
+      STEP 3: COGNITO TEMPLATE (if auth required)
+      If blueprint.auth_architecture includes Cognito:
+      Create output/infrastructure/cognito.yaml with:
+      - AWS::Cognito::UserPool
+      - AWS::Cognito::UserPoolClient
+      - Outputs: UserPoolId, UserPoolClientId
+      
+      STEP 4: PARAMETERS FILE
+      Create output/infrastructure/parameters.json for deployment
+      
+      STEP 5: VALIDATION
+      1. Run SAMValidateTool on template.yaml
+      2. Fix any cfn-lint errors (syntax, invalid properties)
+      3. Validate cognito.yaml if created
+      4. Verify consistency:
+         - Every Lambda directory has a SAM Function resource
+         - Handler names match actual code
+         - Environment variables align with code usage
+         - IAM policies cover all boto3 calls in code
+      
+      Repeat validation until all templates pass.
+      
+      CRITICAL: Templates must match the ACTUAL generated code structure,
+      not just the blueprint. Analyze the real output/ directory.
+    expected_output: "Validated SAM template files in output/infrastructure/ (template.yaml and optionally cognito.yaml) that exactly match the generated application code"
+    output_file: "output/infrastructure/template.yaml"
 

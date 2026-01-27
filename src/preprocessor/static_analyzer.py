@@ -1,8 +1,9 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Set, Optional
 
 import ast
 
@@ -33,8 +34,11 @@ IGNORE_DIRS = {
     '.tox',
     'eggs',
     '.eggs',
+    'coverage'
 }
 
+# 前端代码文件扩展名
+FRONTEND_EXTENSIONS = {'.js', '.ts', '.jsx', '.tsx', '.vue'}
 
 def build_project_structure(root: Path) -> str:
     lines: List[str] = []
@@ -58,43 +62,77 @@ def build_project_structure(root: Path) -> str:
     return "\n".join(lines)
 
 
-def tag_file(source: str) -> List[str]:
+def detect_frontend_characteristics(source: str, file_path: str) -> List[str]:
+    """
+    检测前端文件特征，判断是否需要修改
+    """
+    traits = []
+    
+    # 1. API 调用检测
+    # axios.get, axios.post, fetch(...)
+    # $http.get (AngularJS/Vue legacy)
+    if re.search(r'\b(axios|fetch|\$http)\.(get|post|put|delete|patch|request)\b', source, re.IGNORECASE):
+        traits.append("Frontend_API_Consumer")
+    elif re.search(r'\bfetch\s*\(', source):
+        traits.append("Frontend_API_Consumer")
+    
+    # 2. 硬编码路径/URL 检测
+    # 匹配 '/api/...' 或 'http://localhost' 或 'http://127.0.0.1'
+    if re.search(r"['\"]/api/[^'\"]*['\"]", source) or \
+       re.search(r"['\"]https?://(localhost|127\.0\.0\.1)[^'\"]*['\"]", source):
+        traits.append("Hardcoded_URL")
+        if "Frontend_API_Consumer" not in traits:
+            traits.append("Frontend_API_Consumer")
+
+    # 3. 敏感配置/认证检测
+    # Amplify, aws-exports, process.env.VUE_APP_API_URL 等
+    if re.search(r'\b(Amplify|Auth)\.configure\b', source) or \
+       "aws-exports" in source or \
+       re.search(r'\bprocess\.env\.', source):
+        traits.append("Frontend_Config")
+
+    # 4. 路由定义
+    # react-router, vue-router
+    if "react-router" in source or "vue-router" in source or \
+       re.search(r'\b(Router|Switch|Route)\b', source):
+        traits.append("Frontend_Router")
+
+    return traits
+
+
+def tag_file(source: str, file_path: str) -> List[str]:
     tags: Set[str] = set()
     lower = source.lower()
+    
+    # 前端特征分析
+    # 如果文件路径包含 frontend, client, ui, web 等关键词，或者扩展名是前端特有的
+    is_frontend_path = any(part in {'frontend', 'client', 'ui', 'web', 'public'} for part in Path(file_path).parts)
+    ext = Path(file_path).suffix.lower()
+    
+    if is_frontend_path or ext in {'.jsx', '.tsx', '.vue'}:
+        frontend_traits = detect_frontend_characteristics(source, file_path)
+        tags.update(frontend_traits)
+        
+        # 如果没有任何特殊特征，且是前端代码文件，可能是一个纯 UI 组件
+        if not frontend_traits and ext in FRONTEND_EXTENSIONS:
+            tags.add("Frontend_UI_Component")
+
+    # 后端/通用特征分析
     
     # AWS SDK 检测
     if "boto3" in lower:
         tags.add("AWS_SDK")
     
     # DynamoDB 数据库检测
-    # Python: boto3 + dynamodb 相关操作
-    # JavaScript: AWS SDK + DynamoDB
     if any(keyword in lower for keyword in [
-        "dynamodb",
-        "dynamo",
-        "putitem",
-        "getitem",
-        "updateitem",
-        "deleteitem",
-        "scan(",
-        "query(",
-        ".table(",
-        "batchwriteitem",
-        "batchgetitem",
+        "dynamodb", "dynamo", "putitem", "getitem", "updateitem", "deleteitem", 
+        ".table(", "batchwriteitem"
     ]):
         tags.add("DynamoDB")
     
-    # 保留 Database 标签作为通用数据访问层标识
-    # 但优先识别 DynamoDB
     if "DynamoDB" not in tags:
-        # 检测其他可能的数据库（作为后备）
         if any(keyword in lower for keyword in [
-            "sqlite",
-            "pymysql",
-            "mysql",
-            "postgresql",
-            "postgres",
-            "mongodb",
+            "sqlite", "pymysql", "mysql", "postgresql", "postgres", "mongodb"
         ]):
             tags.add("Database")
     
@@ -103,8 +141,8 @@ def tag_file(source: str) -> List[str]:
         tags.add("Auth")
     
     # Cognito 认证检测
-    if "cognito" in lower or "cognitoidentityserviceprovider" in lower:
-        tags.add("Cognito")
+    # if "cognito" in lower or "cognitoidentityserviceprovider" in lower:
+        # tags.add("Cognito")
     
     return sorted(tags)
 
@@ -119,7 +157,7 @@ def analyze_python_file(root: Path, file_path: Path) -> Dict[str, Any]:
     with file_path.open("r", encoding="utf-8", errors="ignore") as f:
         source = f.read()
 
-    tags = tag_file(source)
+    tags = tag_file(source, rel_path)
     dependency_targets: Set[str] = set()
     entry_points: List[Dict[str, Any]] = []
     symbol_table: List[Dict[str, Any]] = []
@@ -245,6 +283,46 @@ def analyze_python_file(root: Path, file_path: Path) -> Dict[str, Any]:
     }
 
 
+def _find_function_end_js(lines: List[str], start_idx: int) -> int:
+    """
+    从start_idx开始，通过括号匹配找到函数结束行
+    
+    Args:
+        lines: 源代码行列表
+        start_idx: 函数开始行索引（0-based）
+    
+    Returns:
+        函数结束行号（1-based）
+    """
+    brace_count = 0
+    started = False
+    
+    for idx in range(start_idx, len(lines)):
+        line = lines[idx]
+        
+        # 跳过字符串中的括号（简化处理）
+        # 移除单引号和双引号字符串
+        line_cleaned = re.sub(r"'[^']*'", "", line)
+        line_cleaned = re.sub(r'"[^"]*"', "", line_cleaned)
+        line_cleaned = re.sub(r"`[^`]*`", "", line_cleaned)
+        
+        for char in line_cleaned:
+            if char == '{':
+                brace_count += 1
+                started = True
+            elif char == '}':
+                brace_count -= 1
+                if started and brace_count == 0:
+                    return idx + 1  # 返回1-based行号
+        
+        # 防止无限循环，最多扫描1000行
+        if idx - start_idx > 1000:
+            break
+    
+    # 如果没找到结束，返回开始行+1
+    return start_idx + 2
+
+
 def analyze_js_like_file(root: Path, file_path: Path) -> Dict[str, Any]:
     import re
 
@@ -252,7 +330,7 @@ def analyze_js_like_file(root: Path, file_path: Path) -> Dict[str, Any]:
     with file_path.open("r", encoding="utf-8", errors="ignore") as f:
         source = f.read()
 
-    tags = tag_file(source)
+    tags = tag_file(source, rel_path)
     dependency_targets: Set[str] = set()
     entry_points: List[Dict[str, Any]] = []
     symbol_table: List[Dict[str, Any]] = []
@@ -285,40 +363,72 @@ def analyze_js_like_file(root: Path, file_path: Path) -> Dict[str, Any]:
             }
         )
 
-    # Symbol table (best-effort using regex)
+    # Symbol table - 增强的JavaScript函数识别
     module_name = module_name_from_path(root, file_path)
     lines = source.splitlines()
-
-    func_decl = re.compile(r"^\s*function\s+([A-Za-z0-9_]+)\s*\(")
-    class_decl = re.compile(r"^\s*class\s+([A-Za-z0-9_]+)\b")
-    const_func = re.compile(
-        r"^\s*(?:const|let|var)\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>)"
-    )
+    
+    # 扩展的函数识别模式
+    patterns = {
+        # function name() {}
+        "function_decl": re.compile(r"^\s*(?:async\s+)?(?:export\s+)?function\s+([A-Za-z0-9_$]+)\s*\("),
+        # class Name {}
+        "class_decl": re.compile(r"^\s*(?:export\s+)?class\s+([A-Za-z0-9_$]+)\b"),
+        # const/let/var name = function() {} 或 const name = () => {}
+        "const_func": re.compile(
+            r"^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>)"
+        ),
+        # router.get('/path', async (req, res) => {}) - Express路由
+        "router_func": re.compile(
+            r"^\s*(?:router|app)\.(get|post|put|delete|patch|use)\s*\(\s*['\"]([^'\"]+)['\"]"
+        ),
+        # exports.name = function() {} 或 module.exports.name = 
+        "exports_func": re.compile(
+            r"^\s*(?:module\.)?exports\.([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>)"
+        ),
+        # 对象方法: methodName() {} 或 async methodName() {}
+        "object_method": re.compile(
+            r"^\s*(?:async\s+)?([A-Za-z0-9_$]+)\s*\([^)]*\)\s*\{"
+        ),
+    }
 
     for idx, line in enumerate(lines, start=1):
-        m1 = func_decl.search(line)
-        m2 = class_decl.search(line)
-        m3 = const_func.search(line)
         name = None
-        kind = None
-        if m1:
-            name = m1.group(1)
-            kind = "function"
-        elif m2:
-            name = m2.group(1)
+        kind = "function"
+        
+        # 尝试匹配各种模式
+        if m := patterns["function_decl"].search(line):
+            name = m.group(1)
+        elif m := patterns["class_decl"].search(line):
+            name = m.group(1)
             kind = "class"
-        elif m3:
-            name = m3.group(1)
-            kind = "function"
+        elif m := patterns["const_func"].search(line):
+            name = m.group(1)
+        elif m := patterns["router_func"].search(line):
+            # Express路由：使用 method_path 作为标识
+            method = m.group(1).upper()
+            path = m.group(2)
+            name = f"{method}_{path.replace('/', '_').replace(':', '_')}"
+            kind = "route_handler"
+        elif m := patterns["exports_func"].search(line):
+            name = m.group(1)
+        elif m := patterns["object_method"].search(line):
+            # 对象方法，但要排除if/for等关键字
+            potential_name = m.group(1)
+            if potential_name not in {'if', 'for', 'while', 'switch', 'catch', 'with'}:
+                name = potential_name
 
         if name:
+            # 尝试找到函数结束位置（简单的括号匹配）
+            end_line = _find_function_end_js(lines, idx - 1)
+            
             symbol_id = f"{module_name}.{name}"
             symbol_table.append(
                 {
                     "id": symbol_id,
                     "file_path": rel_path,
                     "start_line": idx,
-                    "end_line": idx,
+                    "end_line": end_line,
+                    "kind": kind,
                 }
             )
 
@@ -386,6 +496,89 @@ def analyze_project_config(monolith_root: Path) -> Dict[str, Any]:
     return config_info
 
 
+def extract_dynamodb_info(monolith_root: Path, file_tags: Dict[str, List[str]]) -> Dict[str, Any]:
+    """
+    提取DynamoDB基本信息（简化版本）：
+    1. 是否使用DynamoDB
+    2. 可能的表名列表（从环境变量默认值、硬编码字符串提取）
+    3. 包含schema定义的文件列表
+    
+    注意：不再尝试提取完整的KeySchema/GSI等复杂结构，
+    这些信息应由SAM Engineer在运行时读取schema文件获取。
+    """
+    info = {
+        "used": False,
+        "probable_tables": [],
+        "schema_files": []
+    }
+    
+    # 找到标记为DynamoDB的文件
+    db_files = [f for f, tags in file_tags.items() if "DynamoDB" in tags]
+    if not db_files:
+        return info
+    
+    info["used"] = True
+    info["schema_files"] = db_files
+    
+    # 提取可能的表名（环境变量默认值、硬编码字符串）
+    for rel_file_path in db_files:
+        file_path = monolith_root / rel_file_path
+        if not file_path.exists():
+            continue
+            
+        try:
+            with file_path.open("r", encoding="utf-8", errors="ignore") as f:
+                source = f.read()
+            
+            # Python模式1：os.environ.get('TABLE_NAME', 'default-table')
+            pattern1 = re.findall(
+                r"environ\.get\s*\(\s*['\"][^'\"]+['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
+                source
+            )
+            info["probable_tables"].extend(pattern1)
+            
+            # Python模式2：os.getenv('TABLE_NAME', 'default-table')
+            pattern2 = re.findall(
+                r"getenv\s*\(\s*['\"][^'\"]+['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
+                source
+            )
+            info["probable_tables"].extend(pattern2)
+            
+            # JavaScript模式1：process.env.TABLE_NAME || 'default-table'
+            pattern3 = re.findall(
+                r"process\.env\.[A-Z_]+\s*\|\|\s*['\"]([^'\"]+)['\"]",
+                source
+            )
+            info["probable_tables"].extend(pattern3)
+            
+            # 通用模式：TableName='hardcoded' 或 TableName: 'hardcoded'
+            pattern4 = re.findall(
+                r"[Tt]ableName\s*[=:]\s*['\"]([^'\"]+)['\"]",
+                source
+            )
+            info["probable_tables"].extend(pattern4)
+            
+            # JavaScript模式2：配置对象中的表名
+            # const tables = { TODO_TABLE: 'todo-table', ... }
+            pattern5 = re.findall(
+                r"(?:TODO|USER|ORDER|PRODUCT|CART|BOOKING|FLIGHT|LOYALTY)_TABLE\s*:\s*['\"]([^'\"]+)['\"]",
+                source,
+                re.IGNORECASE
+            )
+            info["probable_tables"].extend(pattern5)
+            
+        except Exception as e:
+            print(f"Warning: Failed to extract table names from {rel_file_path}: {e}")
+            continue
+    
+    # 去重并排序
+    info["probable_tables"] = sorted(list(set(info["probable_tables"])))
+    
+    return info
+
+
+
+
 def run_static_analysis(monolith_root: Path) -> Dict[str, Any]:
     project_structure = build_project_structure(monolith_root)
     
@@ -404,14 +597,19 @@ def run_static_analysis(monolith_root: Path) -> Dict[str, Any]:
         for name in filenames:
             if name.startswith("."):
                 continue
-            ext = os.path.splitext(name)[1].lower()
-            if ext not in {".py", ".js", ".ts"}:
+            
+            file_path = Path(dirpath) / name
+            ext = file_path.suffix.lower()
+            
+            # 扩展：支持更多的前端文件类型
+            if ext not in {".py", ".js", ".ts", ".jsx", ".tsx", ".vue"}:
                 continue
-            path = Path(dirpath) / name
+                
             if ext == ".py":
-                result = analyze_python_file(monolith_root, path)
+                result = analyze_python_file(monolith_root, file_path)
             else:
-                result = analyze_js_like_file(monolith_root, path)
+                # JS, TS, JSX, TSX, Vue 统一走 JS 分析逻辑（主要靠正则）
+                result = analyze_js_like_file(monolith_root, file_path)
 
             rel_path = result["rel_path"]
             dependency_graph[rel_path] = result["dependencies"]
@@ -419,6 +617,9 @@ def run_static_analysis(monolith_root: Path) -> Dict[str, Any]:
                 file_tags[rel_path] = result["tags"]
             entry_points.extend(result["entry_points"])
             symbol_table.extend(result["symbols"])
+    
+    # 提取DynamoDB基本信息（表名列表和schema文件位置）
+    dynamodb_info = extract_dynamodb_info(monolith_root, file_tags)
 
     result = {
         "project_structure": project_structure,
@@ -431,6 +632,10 @@ def run_static_analysis(monolith_root: Path) -> Dict[str, Any]:
     # 只在有配置信息时添加
     if config_info:
         result["config_info"] = config_info
+    
+    # 添加DynamoDB基本信息
+    if dynamodb_info["used"]:
+        result["dynamodb_info"] = dynamodb_info
     
     return result
 
@@ -469,4 +674,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

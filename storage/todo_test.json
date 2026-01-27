@@ -1,0 +1,361 @@
+{
+  "project_structure": "todo/\n├── ARCHITECTURE.md\n├── backend\n│   ├── config\n│   │   └── db.js\n│   ├── middleware\n│   │   └── auth.js\n│   ├── package-lock.json\n│   ├── package.json\n│   ├── routes\n│   │   ├── auth.js\n│   │   └── todo.js\n│   ├── server.js\n│   └── utils\n│       └── jwt.js\n├── frontend\n│   ├── package-lock.json\n│   ├── package.json\n│   ├── public\n│   │   └── index.html\n│   └── src\n│       ├── App.css\n│       ├── App.js\n│       ├── aws.png\n│       ├── config.js\n│       ├── index.css\n│       ├── index.js\n│       ├── serviceWorker.js\n│       ├── ToDo.css\n│       └── ToDo.js\n└── README.md",
+  "entry_points": [
+    {
+      "file": "backend/routes/auth.js",
+      "method": "POST",
+      "path": "/register",
+      "handler": "async"
+    },
+    {
+      "file": "backend/routes/auth.js",
+      "method": "POST",
+      "path": "/login",
+      "handler": "async"
+    },
+    {
+      "file": "backend/routes/todo.js",
+      "method": "GET",
+      "path": "/item",
+      "handler": "async"
+    },
+    {
+      "file": "backend/routes/todo.js",
+      "method": "GET",
+      "path": "/item/:id",
+      "handler": "async"
+    },
+    {
+      "file": "backend/routes/todo.js",
+      "method": "POST",
+      "path": "/item",
+      "handler": "async"
+    },
+    {
+      "file": "backend/routes/todo.js",
+      "method": "PUT",
+      "path": "/item/:id",
+      "handler": "async"
+    },
+    {
+      "file": "backend/routes/todo.js",
+      "method": "POST",
+      "path": "/item/:id/done",
+      "handler": "async"
+    },
+    {
+      "file": "backend/routes/todo.js",
+      "method": "DELETE",
+      "path": "/item/:id",
+      "handler": "async"
+    }
+  ],
+  "dependency_graph": {
+    "backend/server.js": [
+      "./routes/auth",
+      "./routes/todo",
+      "cors",
+      "dotenv",
+      "express"
+    ],
+    "backend/config/db.js": [
+      "aws-sdk"
+    ],
+    "backend/middleware/auth.js": [
+      "../utils/jwt"
+    ],
+    "backend/routes/auth.js": [
+      "../config/db",
+      "../utils/jwt",
+      "bcryptjs",
+      "express"
+    ],
+    "backend/routes/todo.js": [
+      "../config/db",
+      "../middleware/auth",
+      "express",
+      "uuid"
+    ],
+    "backend/utils/jwt.js": [
+      "jsonwebtoken"
+    ],
+    "frontend/src/App.js": [
+      "./ToDo",
+      "./aws.png",
+      "./config",
+      "axios",
+      "react",
+      "reactstrap"
+    ],
+    "frontend/src/config.js": [],
+    "frontend/src/index.js": [
+      "./App",
+      "./serviceWorker",
+      "react",
+      "react-dom"
+    ],
+    "frontend/src/serviceWorker.js": [],
+    "frontend/src/ToDo.js": [
+      "react",
+      "reactstrap"
+    ]
+  },
+  "file_tags": {
+    "backend/config/db.js": [
+      "DynamoDB"
+    ],
+    "backend/middleware/auth.js": [
+      "Auth"
+    ],
+    "backend/routes/auth.js": [
+      "Auth"
+    ],
+    "backend/utils/jwt.js": [
+      "Auth"
+    ],
+    "frontend/src/App.js": [
+      "Auth",
+      "DynamoDB",
+      "Frontend_API_Consumer",
+      "Hardcoded_URL"
+    ],
+    "frontend/src/config.js": [
+      "Frontend_API_Consumer",
+      "Hardcoded_URL"
+    ],
+    "frontend/src/index.js": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/src/serviceWorker.js": [
+      "Frontend_API_Consumer",
+      "Frontend_Config"
+    ],
+    "frontend/src/ToDo.js": [
+      "Frontend_UI_Component"
+    ]
+  },
+  "symbol_table": [
+    {
+      "id": "backend.server.USE__auth",
+      "file_path": "backend/server.js",
+      "start_line": 31,
+      "end_line": 41,
+      "kind": "route_handler"
+    },
+    {
+      "id": "backend.server.USE__api",
+      "file_path": "backend/server.js",
+      "start_line": 32,
+      "end_line": 41,
+      "kind": "route_handler"
+    },
+    {
+      "id": "backend.server.GET__",
+      "file_path": "backend/server.js",
+      "start_line": 35,
+      "end_line": 41,
+      "kind": "route_handler"
+    },
+    {
+      "id": "backend.middleware.auth.authenticateToken",
+      "file_path": "backend/middleware/auth.js",
+      "start_line": 14,
+      "end_line": 43,
+      "kind": "function"
+    },
+    {
+      "id": "backend.routes.auth.POST__register",
+      "file_path": "backend/routes/auth.js",
+      "start_line": 18,
+      "end_line": 84,
+      "kind": "route_handler"
+    },
+    {
+      "id": "backend.routes.auth.POST__login",
+      "file_path": "backend/routes/auth.js",
+      "start_line": 90,
+      "end_line": 142,
+      "kind": "route_handler"
+    },
+    {
+      "id": "backend.routes.todo.GET__item",
+      "file_path": "backend/routes/todo.js",
+      "start_line": 26,
+      "end_line": 55,
+      "kind": "route_handler"
+    },
+    {
+      "id": "backend.routes.todo.GET__item__id",
+      "file_path": "backend/routes/todo.js",
+      "start_line": 61,
+      "end_line": 98,
+      "kind": "route_handler"
+    },
+    {
+      "id": "backend.routes.todo.POST__item",
+      "file_path": "backend/routes/todo.js",
+      "start_line": 104,
+      "end_line": 146,
+      "kind": "route_handler"
+    },
+    {
+      "id": "backend.routes.todo.PUT__item__id",
+      "file_path": "backend/routes/todo.js",
+      "start_line": 152,
+      "end_line": 203,
+      "kind": "route_handler"
+    },
+    {
+      "id": "backend.routes.todo.POST__item__id_done",
+      "file_path": "backend/routes/todo.js",
+      "start_line": 209,
+      "end_line": 251,
+      "kind": "route_handler"
+    },
+    {
+      "id": "backend.routes.todo.DELETE__item__id",
+      "file_path": "backend/routes/todo.js",
+      "start_line": 257,
+      "end_line": 290,
+      "kind": "route_handler"
+    },
+    {
+      "id": "backend.utils.jwt.generateToken",
+      "file_path": "backend/utils/jwt.js",
+      "start_line": 21,
+      "end_line": 27,
+      "kind": "function"
+    },
+    {
+      "id": "backend.utils.jwt.verifyToken",
+      "file_path": "backend/utils/jwt.js",
+      "start_line": 34,
+      "end_line": 41,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.App.App",
+      "file_path": "frontend/src/App.js",
+      "start_line": 16,
+      "end_line": 415,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.App.onDismiss",
+      "file_path": "frontend/src/App.js",
+      "start_line": 68,
+      "end_line": 70,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.App.updateAlert",
+      "file_path": "frontend/src/App.js",
+      "start_line": 72,
+      "end_line": 72,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.App.handleLogin",
+      "file_path": "frontend/src/App.js",
+      "start_line": 82,
+      "end_line": 130,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.App.handleRegister",
+      "file_path": "frontend/src/App.js",
+      "start_line": 135,
+      "end_line": 195,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.App.handleLogout",
+      "file_path": "frontend/src/App.js",
+      "start_line": 200,
+      "end_line": 206,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.App.getAllTodos",
+      "file_path": "frontend/src/App.js",
+      "start_line": 211,
+      "end_line": 226,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.App.addToDo",
+      "file_path": "frontend/src/App.js",
+      "start_line": 231,
+      "end_line": 265,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.App.deleteToDo",
+      "file_path": "frontend/src/App.js",
+      "start_line": 270,
+      "end_line": 295,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.App.completeToDo",
+      "file_path": "frontend/src/App.js",
+      "start_line": 300,
+      "end_line": 324,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.serviceWorker.register",
+      "file_path": "frontend/src/serviceWorker.js",
+      "start_line": 23,
+      "end_line": 55,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.serviceWorker.registerValidSW",
+      "file_path": "frontend/src/serviceWorker.js",
+      "start_line": 57,
+      "end_line": 99,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.serviceWorker.checkValidServiceWorker",
+      "file_path": "frontend/src/serviceWorker.js",
+      "start_line": 101,
+      "end_line": 127,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.serviceWorker.unregister",
+      "file_path": "frontend/src/serviceWorker.js",
+      "start_line": 129,
+      "end_line": 135,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.ToDo.ToDo",
+      "file_path": "frontend/src/ToDo.js",
+      "start_line": 6,
+      "end_line": 6,
+      "kind": "function"
+    },
+    {
+      "id": "frontend.src.ToDo.changeFilter",
+      "file_path": "frontend/src/ToDo.js",
+      "start_line": 9,
+      "end_line": 11,
+      "kind": "function"
+    }
+  ],
+  "dynamodb_info": {
+    "used": true,
+    "probable_tables": [
+      "todo-monolith-table",
+      "todo-monolith-users",
+      "us-east-1"
+    ],
+    "schema_files": [
+      "backend/config/db.js",
+      "frontend/src/App.js"
+    ]
+  }
+}

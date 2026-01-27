@@ -2,8 +2,9 @@ import argparse
 import os
 import ast
 import re
+import json
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Set
 
 from llama_index.core import Document, VectorStoreIndex
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
@@ -12,6 +13,20 @@ from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_MONOLITH_DIR = ROOT_DIR / "input_monolith"
 DEFAULT_INDEX_DIR = ROOT_DIR / "storage" / "code_index"
+DEFAULT_ANALYSIS_REPORT = ROOT_DIR / "storage" / "analysis_report.json"
+
+
+def load_analysis_report(report_path: Path) -> Dict[str, Any]:
+    """加载静态分析报告"""
+    if not report_path.exists():
+        print(f"Warning: Analysis report not found at {report_path}. Using empty report.")
+        return {}
+    try:
+        with open(report_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading analysis report: {e}")
+        return {}
 
 
 def get_python_functions(source: str) -> List[Dict[str, Any]]:
@@ -30,9 +45,6 @@ def get_python_functions(source: str) -> List[Dict[str, Any]]:
                 end_line = getattr(node, "end_lineno", start_line)
                 
                 # 提取源码片段
-                # splitlines 得到的列表索引从 0 开始，所以 start_line - 1
-                # end_line 不需要减（切片不包含结束索引），但因为我们要包含最后一行，
-                # 且 end_line 是 1-based，所以 lines[start-1 : end] 正好对应
                 chunk_lines = lines[start_line - 1 : end_line]
                 chunk_text = "\n".join(chunk_lines)
                 
@@ -50,78 +62,49 @@ def get_python_functions(source: str) -> List[Dict[str, Any]]:
     return chunks
 
 
-def get_js_ts_functions(source: str) -> List[Dict[str, Any]]:
+def should_index_frontend_file(rel_path: str, file_tags: Dict[str, List[str]]) -> bool:
     """
-    使用正则和括号匹配启发式提取 JS/TS 函数
-    注意：这不是完美的 AST 解析，但在没有引入大型 parser 依赖的情况下够用
+    判断前端文件是否需要索引
+    策略：
+    1. 如果在 file_tags 中有记录，且包含 API/Config/Router 相关标签 -> 索引
+    2. 如果没有特殊标签（即纯 UI 组件） -> 不索引
     """
-    chunks = []
-    lines = source.splitlines()
+    # 转换为正斜杠路径以匹配 JSON 里的 key
+    normalized_path = rel_path.replace("\\", "/")
     
-    # 匹配常见的函数定义模式
-    # 1. function foo() {
-    # 2. const foo = () => {
-    # 3. const foo = async function() {
-    # 4. class Foo {
-    patterns = [
-        (re.compile(r"function\s+([a-zA-Z0-9_]+)\s*\("), "function"),
-        (re.compile(r"(?:const|let|var)\s+([a-zA-Z0-9_]+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z0-9_]+)\s*=>\s*\{"), "function"),
-        (re.compile(r"(?:const|let|var)\s+([a-zA-Z0-9_]+)\s*=\s*(?:async\s*)?function\s*\("), "function"),
-        (re.compile(r"class\s+([a-zA-Z0-9_]+)"), "class")
-    ]
-
-    for i, line in enumerate(lines):
-        for pattern, node_type in patterns:
-            match = pattern.search(line)
-            if match:
-                # 找到函数/类定义的开始
-                name = match.group(1)
-                start_line = i + 1
-                
-                # 简单的括号计数法寻找结束行
-                # 从当前行开始往后找
-                open_braces = 0
-                found_brace = False
-                end_line = start_line
-                
-                for j in range(i, len(lines)):
-                    current_line_content = lines[j]
-                    open_braces += current_line_content.count('{')
-                    open_braces -= current_line_content.count('}')
-                    
-                    if '{' in current_line_content:
-                        found_brace = True
-                    
-                    if found_brace and open_braces == 0:
-                        end_line = j + 1
-                        break
-                
-                # 如果没找到闭合括号（可能是单行箭头函数无括号，或者解析错误），
-                # 暂时只取当前行或少量上下文，这里保守策略：如果没闭合，就取到文件末尾或下一段
-                # 为简单起见，如果找到闭合才添加
-                if found_brace and open_braces == 0:
-                    chunk_lines = lines[start_line - 1 : end_line]
-                    chunk_text = "\n".join(chunk_lines)
-                    
-                    chunks.append({
-                        "name": name,
-                        "type": node_type,
-                        "text": chunk_text,
-                        "start_line": start_line,
-                        "end_line": end_line
-                    })
-                break # 每一行只匹配一种模式
-                
-    return chunks
+    tags = file_tags.get(normalized_path, [])
+    
+    # 必须索引的关键特征
+    critical_traits = {
+        "Frontend_API_Consumer", 
+        "Frontend_Config", 
+        "Hardcoded_URL",
+        "Frontend_Router",
+        "AWS_Amplify",
+        "Auth"
+    }
+    
+    # 只要包含任何一个关键特征，就需要索引
+    if any(trait in tags for trait in critical_traits):
+        return True
+        
+    # 如果明确标记为纯 UI 组件，或者是前端文件但没有任何关键特征，则不索引
+    # 这里的逻辑是：只关注那些Agent需要修改逻辑的文件
+    return False
 
 
-def build_documents(monolith_root: Path) -> List[Document]:
+def build_documents(monolith_root: Path, analysis_report: Dict[str, Any]) -> List[Document]:
     """
-    遍历源代码，按函数/类进行分片构建文档
+    遍历源代码，按策略构建文档：
+    1. Python 后端文件：按函数/类分片 (AST)
+    2. 前端文件：经过静态分析筛选后，整文件索引
     """
     docs: List[Document] = []
+    file_tags = analysis_report.get("file_tags", {})
     
-    allowed_ext = {".py", ".js", ".ts", ".jsx", ".tsx"}
+    # 扩展支持的前端文件
+    allowed_ext = {".py", ".js", ".ts", ".jsx", ".tsx", ".vue"}
+    frontend_ext = {".js", ".ts", ".jsx", ".tsx", ".vue"}
     
     print(f"Scanning files in {monolith_root}...")
     
@@ -138,6 +121,15 @@ def build_documents(monolith_root: Path) -> List[Document]:
                 
             rel_path = file_path.relative_to(monolith_root).as_posix()
             
+            # 判断是否为前端文件
+            is_frontend = any(part in {'frontend', 'client', 'ui', 'web', 'public'} for part in file_path.parts)
+            
+            # 前端文件过滤逻辑
+            if is_frontend and ext in frontend_ext:
+                if not should_index_frontend_file(rel_path, file_tags):
+                    # 跳过不需要修改的纯前端文件
+                    continue
+            
             try:
                 with file_path.open("r", encoding="utf-8", errors="ignore") as f:
                     source = f.read()
@@ -146,12 +138,12 @@ def build_documents(monolith_root: Path) -> List[Document]:
                 continue
 
             chunks = []
+            
+            # 仅对 Python 后端文件进行函数级分片
             if ext == ".py":
                 chunks = get_python_functions(source)
-            elif ext in {".js", ".ts", ".jsx", ".tsx"}:
-                chunks = get_js_ts_functions(source)
             
-            # 策略：如果有提取到函数/类，就存函数/类
+            # 策略：如果是 Python 且成功提取到函数，则存函数分片
             if chunks:
                 for chunk in chunks:
                     docs.append(Document(
@@ -165,8 +157,9 @@ def build_documents(monolith_root: Path) -> List[Document]:
                         }
                     ))
             else:
-                # 兜底策略：如果文件里没提取到任何函数（可能是脚本、配置、或解析失败）
-                # 存整个文件，保证代码不丢失
+                # 兜底策略 / 前端策略：
+                # 1. 前端文件直接走这里（整文件索引）
+                # 2. 无法识别函数的 Python 脚本走这里
                 docs.append(Document(
                     text=source,
                     metadata={
@@ -181,10 +174,10 @@ def build_documents(monolith_root: Path) -> List[Document]:
     return docs
 
 
-def build_and_persist_index(monolith_root: Path, index_dir: Path) -> None:
+def build_and_persist_index(monolith_root: Path, index_dir: Path, analysis_report: Dict[str, Any]) -> None:
     index_dir.mkdir(parents=True, exist_ok=True)
 
-    documents = build_documents(monolith_root)
+    documents = build_documents(monolith_root, analysis_report)
     if not documents:
         print(f"No documents found in {monolith_root}")
         return
@@ -201,7 +194,7 @@ def build_and_persist_index(monolith_root: Path, index_dir: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build RAG index over monolith source code (Function-Level)")
+    parser = argparse.ArgumentParser(description="Build RAG index over monolith source code")
     parser.add_argument(
         "--monolith-root",
         type=str,
@@ -214,16 +207,26 @@ def main() -> None:
         default=str(DEFAULT_INDEX_DIR),
         help="Directory to persist the vector index",
     )
+    parser.add_argument(
+        "--analysis-report",
+        type=str,
+        default=str(DEFAULT_ANALYSIS_REPORT),
+        help="Path to static analysis report json",
+    )
 
     args = parser.parse_args()
 
     monolith_root = Path(args.monolith_root).resolve()
     index_dir = Path(args.index_dir).resolve()
+    report_path = Path(args.analysis_report).resolve()
 
     if not monolith_root.exists():
         raise SystemExit(f"Monolith root not found: {monolith_root}")
 
-    build_and_persist_index(monolith_root, index_dir)
+    # 加载静态分析报告
+    analysis_report = load_analysis_report(report_path)
+    
+    build_and_persist_index(monolith_root, index_dir, analysis_report)
 
 
 if __name__ == "__main__":
