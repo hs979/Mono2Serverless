@@ -64,6 +64,14 @@ architect:
     - Order operations → OrderService Lambda
     - Apply single-responsibility principle (5-10 routes per Lambda max)
     
+    ⚠️ CRITICAL: "Drop, Don't Migrate" Rule for Auth
+    - IF you recommend Cognito (Standard Auth), DO NOT create Lambdas for:
+      * Login / Register / Logout
+      * Password Reset / Forgot Password
+      * Token Refresh
+    - These features are handled natively by Cognito.
+    - MARK these endpoints as "Handled by Cognito Infrastructure" in the blueprint.
+    
     **Step 1.2: Identify Integration Patterns**
     Analyze business logic to determine if additional services are needed:
     
@@ -101,6 +109,8 @@ architect:
        - Define logical tables (not physical schema details like KeySchema)
        - Record which services access which tables
        - Record schema source files for SAM Engineer to read
+       - ⚠️ CRITICAL: If using Cognito, REMOVE the legacy "Users" table if it only stores credentials (email/password/hash).
+         Cognito User Pool replaces this. Only keep a Users table if it stores application-specific profiles linked by Cognito Sub ID.
        - Identify if caching is needed → Add ElastiCache
        - Identify if large files are stored → Add S3 for object storage
        - Session data → Plan TTL strategy
@@ -150,25 +160,33 @@ architect:
        - amplify.yml (if using Amplify Hosting)
     
     ============================================================
-    PHASE 3: AUTHENTICATION STRATEGY
+    PHASE 3: AUTHENTICATION STRATEGY (Infrastructure over Code)
     ============================================================
     
-    If "Auth" tag present, analyze auth mechanism and recommend:
+    If "Auth" tag present, you MUST prioritize "Infrastructure over Code":
+
+    1. **The Drop, Don't Migrate Rule**:
+       - Identify Auth routes (register, login, reset-pw).
+       - ACTION: Remove them from Lambda list. Direct Frontend to use Cognito SDK.
+
+    2. **Gateway Authorization Rule**:
+       - Do NOT plan for "VerifyToken" middleware code inside Lambdas.
+       - ACTION: Offload validation to API Gateway Cognito Authorizer.
+       - Result: Lambdas only receive valid requests; remove auth checks from code.
+
+    3. **The Trigger Pattern (Business Logic)**:
+       - Does "Register" also create a Cart/Profile?
+       - ACTION: Move this logic to a "Post-Confirmation" Lambda Trigger invoked by Cognito.
+       - NOT in the registration API response path.
     
-    - **Cognito User Pools** (RECOMMENDED):
-      ✓ Built-in user management, MFA, password policies
-      ✓ OAuth 2.0, SAML, social providers
-      ✓ No code for user database
-      Use when: Standard user auth with email/password
-    
-    - **API Gateway Lambda Authorizer**:
-      ✓ Custom authentication logic
-      Use when: Non-standard auth, third-party integration
-    
+    4. **Selection Guide**:
+       - **Cognito User Pools** (RECOMMENDED for 95% of cases): Use for standard user auth.
+       - **Lambda Authorizer**: ONLY if using custom 3rd party auth (not Cognito).
+
     Define:
     - User pool attributes (email, phone, custom)
     - Password policy
-    - MFA configuration
+    - Triggers needed (e.g., PostConfirmation for initializing data)
     - Frontend integration approach (Amplify Auth vs custom)
     
     ============================================================
