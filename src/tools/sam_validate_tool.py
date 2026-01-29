@@ -1,21 +1,20 @@
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Type
+from pydantic import BaseModel, Field
+from crewai.tools import BaseTool
 
+class SAMValidateInput(BaseModel):
+    """Input schema for SAMValidateTool."""
+    yaml_content: str = Field(..., description="The content of the SAM template.yaml file to validate.")
 
-class SAMValidateTool:
-    """Validate an AWS SAM template.yaml using cfn-lint.
+class SAMValidateTool(BaseTool):
+    name: str = "SAMValidateTool"
+    description: str = "Validate an AWS SAM template using cfn-lint. Returns success status and validation output."
+    args_schema: Type[BaseModel] = SAMValidateInput
 
-    The Infra Agent should call this tool with the YAML content it has
-    generated. The tool writes to a temporary file, invokes `cfn-lint`, and
-    returns (ok, output).
-    """
-
-    def __init__(self) -> None:
-        pass
-
-    def validate(self, yaml_content: str) -> Tuple[bool, str]:
+    def _run(self, yaml_content: str) -> str:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "template.yaml"
             path.write_text(yaml_content, encoding="utf-8")
@@ -28,10 +27,10 @@ class SAMValidateTool:
                     check=False,
                 )
             except FileNotFoundError:
-                # cfn-lint not installed: treat as non-fatal but report back
-                return False, "cfn-lint not found. Please install it in the environment."
+                return "Error: cfn-lint command not found. Please ensure it is installed."
 
-            ok = proc.returncode == 0
             output = proc.stdout + proc.stderr
-            return ok, output
-
+            if proc.returncode == 0:
+                return "Validation Successful! No errors found."
+            else:
+                return f"Validation Failed:\n{output}"

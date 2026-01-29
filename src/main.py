@@ -1,15 +1,20 @@
 from pathlib import Path
 import json
+import os
+from dotenv import load_dotenv
 
 from crewai import Agent, Task, Crew
+from crewai.knowledge.source.text_file_knowledge_source import TextFileKnowledgeSource
 
 from src.tools.file_tools import ReadFileTool, WriteFileTool, FileListTool
 from src.tools.rag_tools import CodeRAGTool
 from src.tools.sam_validate_tool import SAMValidateTool
-from src.tools.sam_doc_tool import SAMDocSearchTool
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
+
+# Load environment variables from .env file
+load_dotenv(ROOT_DIR / ".env")
 
 
 def load_yaml(path: Path):
@@ -29,7 +34,12 @@ def build_agents() -> dict:
     file_list_tool = FileListTool(ROOT_DIR)
     rag_tool = CodeRAGTool(ROOT_DIR / "storage" / "code_index")
     sam_validate_tool = SAMValidateTool()
-    sam_doc_tool = SAMDocSearchTool()
+
+    # 初始化 Knowledge Sources
+    # 使用相对路径，假设运行目录在项目根目录
+    sam_knowledge = TextFileKnowledgeSource(
+        file_paths=["sam_reference.md"]
+    )
 
     agents = {}
 
@@ -61,7 +71,12 @@ def build_agents() -> dict:
         role=sam_cfg["role"],
         goal=sam_cfg["goal"],
         backstory=sam_cfg["backstory"],
-        tools=[read_tool, write_tool, file_list_tool, sam_validate_tool, sam_doc_tool],
+        tools=[read_tool, write_tool, file_list_tool, sam_validate_tool],
+        knowledge_sources=[sam_knowledge],
+        embedder={
+            "provider": "ollama",
+            "config": {}  # 配置从环境变量读取：EMBEDDINGS_OLLAMA_MODEL_NAME, EMBEDDINGS_OLLAMA_BASE_URL
+        },
         verbose=True,
         allow_delegation=False,
     )

@@ -67,6 +67,11 @@ def detect_frontend_characteristics(source: str, file_path: str) -> List[str]:
     检测前端文件特征，判断是否需要修改
     """
     traits = []
+    filename = Path(file_path).name.lower()
+    
+    # 0. 文件名模式检测 - 配置文件优先识别
+    if filename in {'config.js', 'config.ts', 'settings.js', 'constants.js', 'env.js'}:
+        traits.append("Frontend_Config")
     
     # 1. API 调用检测
     # axios.get, axios.post, fetch(...)
@@ -75,27 +80,50 @@ def detect_frontend_characteristics(source: str, file_path: str) -> List[str]:
         traits.append("Frontend_API_Consumer")
     elif re.search(r'\bfetch\s*\(', source):
         traits.append("Frontend_API_Consumer")
+    # AWS Amplify API 检测
+    elif re.search(r'\bAPI\.(get|post|put|delete|patch|graphql)\b', source):
+        traits.append("Frontend_API_Consumer")
+    
+    # 检测从 aws-amplify 导入 API
+    if re.search(r'from [\'"]aws-amplify[\'"]', source) or \
+       re.search(r'import .+ from [\'"]aws-amplify', source):
+        if re.search(r'\bAPI\b', source):
+            if "Frontend_API_Consumer" not in traits:
+                traits.append("Frontend_API_Consumer")
     
     # 2. 硬编码路径/URL 检测
     # 匹配 '/api/...' 或 'http://localhost' 或 'http://127.0.0.1'
     if re.search(r"['\"]/api/[^'\"]*['\"]", source) or \
        re.search(r"['\"]https?://(localhost|127\.0\.0\.1)[^'\"]*['\"]", source):
         traits.append("Hardcoded_URL")
-        if "Frontend_API_Consumer" not in traits:
-            traits.append("Frontend_API_Consumer")
+        # 不再自动添加 Frontend_API_Consumer
 
     # 3. 敏感配置/认证检测
     # Amplify, aws-exports, process.env.VUE_APP_API_URL 等
     if re.search(r'\b(Amplify|Auth)\.configure\b', source) or \
        "aws-exports" in source or \
        re.search(r'\bprocess\.env\.', source):
-        traits.append("Frontend_Config")
+        if "Frontend_Config" not in traits:
+            traits.append("Frontend_Config")
+    
+    # 配置对象检测
+    if re.search(r'(?:const|let|var)\s+\w*config\w*\s*=\s*\{', source, re.IGNORECASE):
+        if "Frontend_Config" not in traits:
+            traits.append("Frontend_Config")
 
-    # 4. 路由定义
-    # react-router, vue-router
-    if "react-router" in source or "vue-router" in source or \
-       re.search(r'\b(Router|Switch|Route)\b', source):
-        traits.append("Frontend_Router")
+    # 4. 认证集成检测（router 中的认证逻辑）
+    # 只标记包含认证相关代码的路由文件，纯路由定义不打标签
+    if "router" in filename or re.search(r'\b(Router|Switch|Route)\b', source):
+        # 检查是否包含认证相关代码
+        if re.search(r'\b(getCurrentUser|currentAuthenticatedUser|signIn|signOut|Auth\.)', source):
+            traits.append("Frontend_Auth_Integration")
+    
+    # 5. Service Worker 特殊处理
+    if 'serviceworker' in filename or filename == 'sw.js':
+        # Service Worker 不应该有 Frontend_API_Consumer 标签
+        traits = [t for t in traits if t != "Frontend_API_Consumer"]
+        if "Frontend_Config" not in traits:
+            traits.append("Frontend_Config")
 
     return traits
 
@@ -116,6 +144,9 @@ def tag_file(source: str, file_path: str) -> List[str]:
         # 如果没有任何特殊特征，且是前端代码文件，可能是一个纯 UI 组件
         if not frontend_traits and ext in FRONTEND_EXTENSIONS:
             tags.add("Frontend_UI_Component")
+        
+        # 前端文件：只返回前端标签，不检测后端标签
+        return sorted(tags)
 
     # 后端/通用特征分析
     
@@ -227,7 +258,6 @@ def analyze_python_file(root: Path, file_path: Path) -> Dict[str, Any]:
                                     "file": rel_path,
                                     "method": http_method,
                                     "path": path,
-                                    "handler": func.name,
                                 }
                             )
                     elif attr in PY_ENTRY_METHOD_DECORATORS:
@@ -243,7 +273,6 @@ def analyze_python_file(root: Path, file_path: Path) -> Dict[str, Any]:
                                     "file": rel_path,
                                     "method": attr.upper(),
                                     "path": path,
-                                    "handler": func.name,
                                 }
                             )
 
@@ -334,7 +363,24 @@ def analyze_js_like_file(root: Path, file_path: Path) -> Dict[str, Any]:
     dependency_targets: Set[str] = set()
     entry_points: List[Dict[str, Any]] = []
     symbol_table: List[Dict[str, Any]] = []
+    
+    # 判断是否是前端文件
+    is_frontend_path = any(part in {'frontend', 'client', 'ui', 'web', 'public', 'src', 'www'} for part in Path(file_path).parts)
+    ext = Path(file_path).suffix.lower()
+    is_frontend = is_frontend_path or ext in {'.jsx', '.tsx', '.vue'}
+    
+    # 前端文件判断：如果没有明显的前端特征标签，但路径表明是前端，也认为是前端
+    if is_frontend:
+        # 前端文件：只需要标签，不需要依赖和符号表
+        return {
+            "rel_path": rel_path,
+            "tags": tags,
+            "dependencies": [],
+            "entry_points": [],
+            "symbols": [],
+        }
 
+    # 后端文件：提取依赖
     # Dependencies: require()/import
     dep_patterns = [
         re.compile(r"require\(['\"]([^'\"]+)['\"]\)"),
@@ -353,13 +399,11 @@ def analyze_js_like_file(root: Path, file_path: Path) -> Dict[str, Any]:
     for m in route_pattern.finditer(source):
         method = m.group(2).upper()
         path = m.group(3)
-        handler = m.group(4)
         entry_points.append(
             {
                 "file": rel_path,
                 "method": method,
                 "path": path,
-                "handler": handler,
             }
         )
 
@@ -389,6 +433,11 @@ def analyze_js_like_file(root: Path, file_path: Path) -> Dict[str, Any]:
         "object_method": re.compile(
             r"^\s*(?:async\s+)?([A-Za-z0-9_$]+)\s*\([^)]*\)\s*\{"
         ),
+        # WebSocket/EventEmitter事件监听器: .on('event', callback)
+        # 匹配: wss.on('connection', ...) 或 ws.on('message', ...) 或 process.on('SIGINT', ...)
+        "event_listener": re.compile(
+            r"^\s*([A-Za-z0-9_$]+)\.on\s*\(\s*['\"]([^'\"]+)['\"]"
+        ),
     }
 
     for idx, line in enumerate(lines, start=1):
@@ -409,6 +458,14 @@ def analyze_js_like_file(root: Path, file_path: Path) -> Dict[str, Any]:
             path = m.group(2)
             name = f"{method}_{path.replace('/', '_').replace(':', '_')}"
             kind = "route_handler"
+        elif m := patterns["event_listener"].search(line):
+            # WebSocket/EventEmitter事件监听器
+            # 例如: wss.on('connection', ...) -> wss_on_connection
+            #      ws.on('message', ...) -> ws_on_message
+            obj_name = m.group(1)
+            event_name = m.group(2)
+            name = f"{obj_name}_on_{event_name}"
+            kind = "event_handler"
         elif m := patterns["exports_func"].search(line):
             name = m.group(1)
         elif m := patterns["object_method"].search(line):
@@ -496,12 +553,82 @@ def analyze_project_config(monolith_root: Path) -> Dict[str, Any]:
     return config_info
 
 
+def _prioritize_schema_files(files: List[str]) -> List[str]:
+    """
+    根据文件路径优先级筛选最有可能包含表结构定义的文件
+    
+    优先级：
+    - P1 (高): 表结构初始化文件 (init-db, setup-db, create-tables等)
+    - P2 (中): 数据库配置和CRUD文件 (db.js/py, database.js/py, models.py等)
+    - P3 (低): 业务逻辑文件 (routes/, frontend/, middleware/等) - 忽略
+    
+    返回最多3个最高优先级的文件
+    """
+    from pathlib import PurePath
+    
+    def get_priority(file_path: str) -> int:
+        """计算文件优先级，数字越小优先级越高"""
+        path = PurePath(file_path)
+        filename = path.name.lower()
+        parts = [p.lower() for p in path.parts]
+        
+        # P3 - 低优先级（忽略）：返回99
+        ignore_dirs = {'frontend', 'client', 'public', 'routes', 'views', 'controllers', 
+                       'middleware', 'components', 'pages', 'src/components', 'src/pages'}
+        if any(ignore_dir in parts for ignore_dir in ignore_dirs):
+            return 99
+        
+        # P1 - 高优先级：表结构定义文件
+        # init-db, init_dynamodb, setup-db, create-tables等
+        p1_patterns = [
+            'init-db', 'init_db', 'init_dynamodb', 'initdb',
+            'setup-db', 'setup_db', 'setup_dynamodb',
+            'create-tables', 'create_tables', 'createtables',
+            '_tables.py'  # 如 init_dynamodb_tables.py
+        ]
+        if any(pattern in filename for pattern in p1_patterns):
+            return 1
+        
+        # P2 - 中优先级：数据库配置和CRUD
+        # db.js/py, database.js/py, dynamodb.js/py (不在routes目录)
+        p2_filenames = {'db.js', 'db.py', 'database.js', 'database.py', 
+                        'dynamodb.js', 'dynamodb.py', 'models.py'}
+        p2_allowed_dirs = {'config', 'database', 'utils', 'services', 'app/models', ''}  # '' 表示根目录
+        
+        if filename in p2_filenames:
+            # 检查是否在允许的目录中
+            parent_dir = parts[-2] if len(parts) > 1 else ''
+            # 允许根目录或特定目录
+            if parent_dir in p2_allowed_dirs or len(parts) == 1:
+                return 2
+            # 也允许 database/ 目录
+            if 'database' in parts:
+                return 2
+        
+        # 默认：较低优先级（但不忽略）
+        return 50
+    
+    # 计算每个文件的优先级
+    file_priorities = [(f, get_priority(f)) for f in files]
+    
+    # 过滤掉忽略的文件（priority == 99）
+    file_priorities = [(f, p) for f, p in file_priorities if p < 99]
+    
+    # 按优先级排序
+    file_priorities.sort(key=lambda x: (x[1], x[0]))  # 先按优先级，再按文件名
+    
+    # 返回最多3个最高优先级的文件
+    top_files = [f for f, _ in file_priorities[:3]]
+    
+    return top_files
+
+
 def extract_dynamodb_info(monolith_root: Path, file_tags: Dict[str, List[str]]) -> Dict[str, Any]:
     """
     提取DynamoDB基本信息（简化版本）：
     1. 是否使用DynamoDB
     2. 可能的表名列表（从环境变量默认值、硬编码字符串提取）
-    3. 包含schema定义的文件列表
+    3. 包含schema定义的文件列表（优先级筛选后的TOP3）
     
     注意：不再尝试提取完整的KeySchema/GSI等复杂结构，
     这些信息应由SAM Engineer在运行时读取schema文件获取。
@@ -518,7 +645,8 @@ def extract_dynamodb_info(monolith_root: Path, file_tags: Dict[str, List[str]]) 
         return info
     
     info["used"] = True
-    info["schema_files"] = db_files
+    # 优先级筛选：只保留最有可能包含schema的TOP3文件
+    info["schema_files"] = _prioritize_schema_files(db_files)
     
     # 提取可能的表名（环境变量默认值、硬编码字符串）
     for rel_file_path in db_files:
@@ -530,26 +658,32 @@ def extract_dynamodb_info(monolith_root: Path, file_tags: Dict[str, List[str]]) 
             with file_path.open("r", encoding="utf-8", errors="ignore") as f:
                 source = f.read()
             
-            # Python模式1：os.environ.get('TABLE_NAME', 'default-table')
+            # Python模式1：os.environ.get('XXX_TABLE_XXX', 'default-table')
+            # 只匹配包含TABLE关键字的环境变量，避免误识别AWS_REGION、SECRET_KEY等
             pattern1 = re.findall(
-                r"environ\.get\s*\(\s*['\"][^'\"]+['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
+                r"environ\.get\s*\(\s*['\"]([A-Z_]*TABLE[A-Z_]*)['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
                 source
             )
-            info["probable_tables"].extend(pattern1)
+            # 提取第二个捕获组（表名）
+            info["probable_tables"].extend([m[1] for m in pattern1])
             
-            # Python模式2：os.getenv('TABLE_NAME', 'default-table')
+            # Python模式2：os.getenv('XXX_TABLE_XXX', 'default-table')
+            # 只匹配包含TABLE关键字的环境变量
             pattern2 = re.findall(
-                r"getenv\s*\(\s*['\"][^'\"]+['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
+                r"getenv\s*\(\s*['\"]([A-Z_]*TABLE[A-Z_]*)['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
                 source
             )
-            info["probable_tables"].extend(pattern2)
+            # 提取第二个捕获组（表名）
+            info["probable_tables"].extend([m[1] for m in pattern2])
             
-            # JavaScript模式1：process.env.TABLE_NAME || 'default-table'
+            # JavaScript模式1：process.env.XXX_TABLE_XXX || 'default-table'
+            # 只匹配包含TABLE关键字的环境变量，避免误识别AWS_REGION、NODE_ENV等
             pattern3 = re.findall(
-                r"process\.env\.[A-Z_]+\s*\|\|\s*['\"]([^'\"]+)['\"]",
+                r"process\.env\.([A-Z_]*TABLE[A-Z_]*)\s*\|\|\s*['\"]([^'\"]+)['\"]",
                 source
             )
-            info["probable_tables"].extend(pattern3)
+            # 提取第二个捕获组（表名）
+            info["probable_tables"].extend([m[1] for m in pattern3])
             
             # 通用模式：TableName='hardcoded' 或 TableName: 'hardcoded'
             pattern4 = re.findall(

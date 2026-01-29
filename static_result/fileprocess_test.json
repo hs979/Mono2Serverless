@@ -1,0 +1,118 @@
+{
+  "project_structure": "monolith-app/\n├── database.py\n├── init_dynamodb.py\n├── main.py\n├── metadata.json\n├── output\n│   └── html\n│       └── sample-07.html\n├── processing.py\n├── README.md\n├── requirements.txt\n└── sentiment.db",
+  "entry_points": [],
+  "dependency_graph": {
+    "database.py": [
+      "boto3",
+      "datetime",
+      "os"
+    ],
+    "init_dynamodb.py": [
+      "boto3",
+      "botocore.exceptions",
+      "os",
+      "sys"
+    ],
+    "main.py": [
+      "argparse",
+      "database",
+      "os",
+      "processing",
+      "sys"
+    ],
+    "processing.py": [
+      "boto3",
+      "markdown",
+      "os"
+    ]
+  },
+  "file_tags": {
+    "database.py": [
+      "AWS_SDK",
+      "DynamoDB"
+    ],
+    "init_dynamodb.py": [
+      "AWS_SDK",
+      "DynamoDB"
+    ],
+    "main.py": [
+      "DynamoDB"
+    ],
+    "processing.py": [
+      "AWS_SDK"
+    ]
+  },
+  "symbol_table": [
+    {
+      "id": "database.save_sentiment",
+      "file_path": "database.py",
+      "start_line": 18,
+      "end_line": 50
+    },
+    {
+      "id": "init_dynamodb.get_dynamodb_client",
+      "file_path": "init_dynamodb.py",
+      "start_line": 17,
+      "end_line": 19
+    },
+    {
+      "id": "init_dynamodb.table_exists",
+      "file_path": "init_dynamodb.py",
+      "start_line": 21,
+      "end_line": 29
+    },
+    {
+      "id": "init_dynamodb.wait_for_table",
+      "file_path": "init_dynamodb.py",
+      "start_line": 31,
+      "end_line": 42
+    },
+    {
+      "id": "init_dynamodb.create_sentiment_table",
+      "file_path": "init_dynamodb.py",
+      "start_line": 44,
+      "end_line": 119
+    },
+    {
+      "id": "main.main",
+      "file_path": "main.py",
+      "start_line": 7,
+      "end_line": 75
+    },
+    {
+      "id": "processing.convert_to_html",
+      "file_path": "processing.py",
+      "start_line": 5,
+      "end_line": 51
+    },
+    {
+      "id": "processing.analyze_sentiment",
+      "file_path": "processing.py",
+      "start_line": 53,
+      "end_line": 117
+    }
+  ],
+  "config_info": {
+    "python_dependencies": [
+      {
+        "name": "markdown",
+        "version": "3.3.6"
+      },
+      {
+        "name": "boto3",
+        "version": ">=1.26.0"
+      }
+    ]
+  },
+  "dynamodb_info": {
+    "used": true,
+    "probable_tables": [
+      "ref-arch-fileprocessing-sentiment"
+    ],
+    "schema_files": [
+      "init_dynamodb.py",
+      "database.py",
+      "main.py"
+    ]
+  }
+}

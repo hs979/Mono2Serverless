@@ -32,13 +32,16 @@ tasks:
       The blueprint should provide a complete migration roadmap without
       implementation details.
     expected_output: "A complete blueprint.json file at storage/blueprint.json with backend, frontend, data, and auth architecture"
-    output_file: "storage/blueprint.json"
 
   # Task 2: 完整应用代码生成 - 生成可部署的serverless应用
   - id: generate_complete_application
     agent: code_developer
     description: |
-      Based on blueprint.json, generate a COMPLETE serverless application including:
+      Based on blueprint.json, generate a COMPLETE serverless application.
+
+      STRICT DATA SOURCE RULES:
+      1. Primary Source: Use `ReadFileTool` to read the exact `source_files` defined in the blueprint. This is non-negotiable for business logic.
+      2. Secondary Source: Use `CodeRAGTool` to locate helper functions, models, or **similar code patterns** to understand intent and fill knowledge gaps. Always read the full content of found files with `ReadFileTool`.
       
       BACKEND COMPONENTS:
       1. Lambda Functions:
@@ -62,7 +65,7 @@ tasks:
          - Write to output/frontend/src/
       
       2. Configuration Files:
-         - Create .env.example with all required variables
+         - Create .env.example with PLACEHOLDERS for values that will be generated after deployment (e.g., API_URL=REPLACE_AFTER_DEPLOY).
          - Create aws-exports.js for Amplify (if Cognito used)
       
       3. Copy UI Components:
@@ -155,5 +158,4 @@ tasks:
       CRITICAL: Templates must match the ACTUAL generated code structure,
       not just the blueprint. Analyze the real output/ directory.
     expected_output: "Validated SAM template files in output/infrastructure/ (template.yaml and optionally cognito.yaml) that exactly match the generated application code"
-    output_file: "output/infrastructure/template.yaml"
 

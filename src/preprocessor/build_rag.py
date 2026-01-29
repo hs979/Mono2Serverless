@@ -1,10 +1,8 @@
 import argparse
 import os
-import ast
-import re
 import json
 from pathlib import Path
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any
 
 from llama_index.core import Document, VectorStoreIndex
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
@@ -29,44 +27,29 @@ def load_analysis_report(report_path: Path) -> Dict[str, Any]:
         return {}
 
 
-def get_python_functions(source: str) -> List[Dict[str, Any]]:
+def extract_code_chunk(source: str, start_line: int, end_line: int) -> str:
     """
-    使用 AST 解析 Python 代码，提取函数和类作为分片
+    从源代码中提取指定行范围的代码片段
+    
+    Args:
+        source: 完整源代码
+        start_line: 起始行号（1-based）
+        end_line: 结束行号（1-based）
+    
+    Returns:
+        提取的代码片段
     """
-    chunks = []
-    try:
-        tree = ast.parse(source)
-        lines = source.splitlines()
-        
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                # ast 行号从 1 开始
-                start_line = node.lineno
-                end_line = getattr(node, "end_lineno", start_line)
-                
-                # 提取源码片段
-                chunk_lines = lines[start_line - 1 : end_line]
-                chunk_text = "\n".join(chunk_lines)
-                
-                node_type = "class" if isinstance(node, ast.ClassDef) else "function"
-                
-                chunks.append({
-                    "name": node.name,
-                    "type": node_type,
-                    "text": chunk_text,
-                    "start_line": start_line,
-                    "end_line": end_line
-                })
-    except SyntaxError:
-        pass
-    return chunks
+    lines = source.splitlines()
+    # start_line 和 end_line 是 1-based，需要转换为 0-based 索引
+    chunk_lines = lines[start_line - 1 : end_line]
+    return "\n".join(chunk_lines)
 
 
 def should_index_frontend_file(rel_path: str, file_tags: Dict[str, List[str]]) -> bool:
     """
     判断前端文件是否需要索引
     策略：
-    1. 如果在 file_tags 中有记录，且包含 API/Config/Router 相关标签 -> 索引
+    1. 如果在 file_tags 中有记录，且包含 API/Config/Auth 相关标签 -> 索引
     2. 如果没有特殊标签（即纯 UI 组件） -> 不索引
     """
     # 转换为正斜杠路径以匹配 JSON 里的 key
@@ -74,14 +57,16 @@ def should_index_frontend_file(rel_path: str, file_tags: Dict[str, List[str]]) -
     
     tags = file_tags.get(normalized_path, [])
     
-    # 必须索引的关键特征
+    # 必须索引的关键特征（已更新标签：Frontend_Router → Frontend_Auth_Integration）
     critical_traits = {
         "Frontend_API_Consumer", 
         "Frontend_Config", 
         "Hardcoded_URL",
-        "Frontend_Router",
-        "AWS_Amplify",
-        "Auth"
+        "Frontend_Auth_Integration",  # 原 Frontend_Router，更准确反映认证逻辑
+        # "Frontend_GraphQL",           # GraphQL 相关
+        # "Frontend_Amplify_Init",      # Amplify 初始化
+        # "AWS_Amplify",
+        # "Auth"
     }
     
     # 只要包含任何一个关键特征，就需要索引
@@ -96,17 +81,46 @@ def should_index_frontend_file(rel_path: str, file_tags: Dict[str, List[str]]) -
 def build_documents(monolith_root: Path, analysis_report: Dict[str, Any]) -> List[Document]:
     """
     遍历源代码，按策略构建文档：
-    1. Python 后端文件：按函数/类分片 (AST)
-    2. 前端文件：经过静态分析筛选后，整文件索引
+    
+    策略：
+    1. 前端文件（.js/.ts/.jsx/.tsx/.vue in frontend/client/ui/web/public）：
+       - 过滤：只索引有关键特征的文件（API/Config/Auth），跳过纯 UI 组件
+       - 索引方式：整文件索引
+       - Metadata：无（空对象）
+    
+    2. 后端文件（Python/Node.js）：
+       - 索引方式：按函数/类分片（从 symbol_table 读取）
+       - Metadata：包含 file_path, function_name, symbol_id, type, start_line, end_line
+       - 特殊情况：没有符号的后端文件（配置文件）整文件索引，但保留 metadata
     """
     docs: List[Document] = []
     file_tags = analysis_report.get("file_tags", {})
+    symbol_table = analysis_report.get("symbol_table", [])
     
-    # 扩展支持的前端文件
+    # 构建 file_path -> symbols 的映射
+    file_symbols: Dict[str, List[Dict[str, Any]]] = {}
+    for symbol in symbol_table:
+        file_path = symbol["file_path"]
+        if file_path not in file_symbols:
+            file_symbols[file_path] = []
+        file_symbols[file_path].append(symbol)
+    
+    # 扩展支持的文件类型
     allowed_ext = {".py", ".js", ".ts", ".jsx", ".tsx", ".vue"}
     frontend_ext = {".js", ".ts", ".jsx", ".tsx", ".vue"}
     
     print(f"Scanning files in {monolith_root}...")
+    print(f"Symbol table contains {len(symbol_table)} symbols across {len(file_symbols)} files")
+    
+    # 统计信息
+    stats = {
+        "total_files": 0,
+        "backend_chunked_files": 0,
+        "backend_whole_files": 0,
+        "frontend_whole_files": 0,
+        "skipped_files": 0,
+        "total_chunks": 0
+    }
     
     for dirpath, _, filenames in os.walk(monolith_root):
         for name in filenames:
@@ -120,6 +134,7 @@ def build_documents(monolith_root: Path, analysis_report: Dict[str, Any]) -> Lis
                 continue
                 
             rel_path = file_path.relative_to(monolith_root).as_posix()
+            stats["total_files"] += 1
             
             # 判断是否为前端文件
             is_frontend = any(part in {'frontend', 'client', 'ui', 'web', 'public'} for part in file_path.parts)
@@ -128,6 +143,7 @@ def build_documents(monolith_root: Path, analysis_report: Dict[str, Any]) -> Lis
             if is_frontend and ext in frontend_ext:
                 if not should_index_frontend_file(rel_path, file_tags):
                     # 跳过不需要修改的纯前端文件
+                    stats["skipped_files"] += 1
                     continue
             
             try:
@@ -137,40 +153,69 @@ def build_documents(monolith_root: Path, analysis_report: Dict[str, Any]) -> Lis
                 print(f"Error reading {file_path}: {e}")
                 continue
 
-            chunks = []
-            
-            # 仅对 Python 后端文件进行函数级分片
-            if ext == ".py":
-                chunks = get_python_functions(source)
-            
-            # 策略：如果是 Python 且成功提取到函数，则存函数分片
-            if chunks:
-                for chunk in chunks:
-                    docs.append(Document(
-                        text=chunk["text"],
-                        metadata={
-                            "file_path": rel_path,
-                            "function_name": chunk["name"],
-                            "type": chunk["type"],
-                            "start_line": chunk["start_line"],
-                            "end_line": chunk["end_line"]
-                        }
-                    ))
-            else:
-                # 兜底策略 / 前端策略：
-                # 1. 前端文件直接走这里（整文件索引）
-                # 2. 无法识别函数的 Python 脚本走这里
+            # 策略分叉：前端和后端分开处理
+            if is_frontend and ext in frontend_ext:
+                # === 前端文件：整文件索引，无 metadata ===
                 docs.append(Document(
                     text=source,
-                    metadata={
-                        "file_path": rel_path,
-                        "function_name": "whole_file",
-                        "type": "file",
-                        "start_line": 1,
-                        "end_line": len(source.splitlines())
-                    }
+                    metadata={}  # 前端文件不附带 metadata
                 ))
-                
+                stats["frontend_whole_files"] += 1
+            else:
+                # === 后端文件：按函数/类分片（使用 symbol_table），附带 metadata ===
+                if rel_path in file_symbols and file_symbols[rel_path]:
+                    # 有符号定义，按函数/类分片
+                    for symbol in file_symbols[rel_path]:
+                        chunk_text = extract_code_chunk(
+                            source, 
+                            symbol["start_line"], 
+                            symbol["end_line"]
+                        )
+                        
+                        # 从 symbol id 提取函数名（格式：module.ClassName.method_name 或 module.function_name）
+                        symbol_id = symbol["id"]
+                        function_name = symbol_id.split(".")[-1]  # 取最后一部分作为函数名
+                        
+                        docs.append(Document(
+                            text=chunk_text,
+                            metadata={
+                                "file_path": rel_path,
+                                "function_name": function_name,
+                                "symbol_id": symbol_id,
+                                "type": symbol.get("kind", "function"),  # Python 没有 kind，默认 function
+                                "start_line": symbol["start_line"],
+                                "end_line": symbol["end_line"]
+                            }
+                        ))
+                        stats["total_chunks"] += 1
+                    
+                    stats["backend_chunked_files"] += 1
+                else:
+                    # 后端文件但没有符号定义，整文件索引（配置文件、简单脚本等）
+                    docs.append(Document(
+                        text=source,
+                        metadata={
+                            "file_path": rel_path,
+                            "function_name": "whole_file",
+                            "type": "file",
+                            "start_line": 1,
+                            "end_line": len(source.splitlines())
+                        }
+                    ))
+                    stats["backend_whole_files"] += 1
+    
+    # 打印统计信息
+    print(f"\n=== Indexing Statistics ===")
+    print(f"Total files scanned: {stats['total_files']}")
+    print(f"\nBackend files:")
+    print(f"  - Chunked (with metadata): {stats['backend_chunked_files']} ({stats['total_chunks']} chunks)")
+    print(f"  - Whole file (with metadata): {stats['backend_whole_files']}")
+    print(f"\nFrontend files:")
+    print(f"  - Whole file (no metadata): {stats['frontend_whole_files']}")
+    print(f"  - Skipped (pure UI): {stats['skipped_files']}")
+    print(f"\nTotal documents: {len(docs)}")
+    print(f"===========================\n")
+    
     return docs
 
 

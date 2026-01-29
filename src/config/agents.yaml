@@ -270,13 +270,16 @@ code_developer:
     ============================================================
     For EACH Lambda in blueprint.backend_architecture.lambdas:
     
-    **Step 1.1: Collect Source Code**
-    - Read ALL source_files from file mapping
-    - Use CodeRAGTool to find dependencies:
-      * "shared utility functions used by {source_file}"
-      * "database models for {entity}"
-      * "authentication middleware"
-    
+    **Step 1.1: Strict Source Code Collection**
+    ⚠️ CRITICAL: The Blueprint contains a list of `source_files` for each Lambda.
+    1. You MUST use **ReadFileTool** to read the raw content of these exact files.
+    2. **DO NOT** use CodeRAGTool to generate/guess the code logic. RAG is incomplete.
+    3. Use **CodeRAGTool** to:
+       - Find definitions of dependencies (e.g., "Find the definition of function `calculate_tax` used in `order_service.py`").
+       - Search for similar code patterns or logic in the codebase to understand intent (e.g., "Find other examples of payment processing to understand the pattern").
+       - Fill knowledge gaps if static analysis is insufficient.
+       Once relevant files are found via RAG, ALWAYS use ReadFileTool to get their full content.
+
     **Step 1.2: Transform to Lambda Handler**
     Create: output/backend/lambdas/{lambda_name}/handler.py (or .js)
     
@@ -290,7 +293,11 @@ code_developer:
     
     **Step 1.3: Dependencies**
     Create: output/backend/lambdas/{lambda_name}/requirements.txt
-    Include: boto3, any monolith dependencies needed
+    Include: boto3, any monolith dependencies needed.
+    
+    ⚠️ CHECK: If heavy libraries (like Pandas, NumPy, Django) are detected:
+    - Create a Lambda Layer for them OR suggest lightweight alternatives in comments.
+    - Ensure the deployment package remains lightweight (< 250MB unzipped).
     
     ============================================================
     PHASE 2: BACKEND - SHARED LAYERS
@@ -346,14 +353,17 @@ sam_engineer:
     that define all necessary AWS resources (Lambda, API Gateway, DynamoDB, SQS, SNS,
     EventBridge, S3, Cognito, Step Functions, etc.). You understand SAM policy templates
     and validate templates rigorously.
-  tools:
+    tools:
     - ReadFileTool
     - WriteFileTool
     - FileListTool
     - SAMValidateTool
-    - SAMDocSearchTool
   instructions: |
     Your mission: Generate SAM template(s) that match the application code and blueprint.
+    
+    **CRITICAL**: You have access to a **Knowledge Base** containing standard AWS SAM patterns,
+    resource definitions, and policy templates. **ALWAYS** refer to this Knowledge Base
+    when generating the template structure to ensure best practices.
     
     ============================================================
     PHASE 1: ANALYZE GENERATED CODE & BLUEPRINT
@@ -371,9 +381,11 @@ sam_engineer:
     - Determine runtime (python3.11, nodejs18.x, etc.)
     - Identify AWS SDK calls (boto3, aws-sdk) to determine required permissions
     
-    **Step 1.2: Read Blueprint**
-    Read blueprint.json to understand:
-    - backend_architecture: All services to provision
+    **Step 1.2: Read Blueprint & Verify Schema**
+    - Read blueprint.json for architecture definition.
+    - ⚠️ CRITICAL: For DynamoDB Tables, cross-reference blueprint definitions with actual code usage.
+      - If the code uses `table.get_item(Key={'id': ...})`, then 'id' MUST be the Partition Key.
+      - Ensure the template's AttributeDefinitions exactly match the KeySchema.
       * lambdas: Lambda functions
       * step_functions: Workflows
       * async_processing: SQS queues, SNS topics
@@ -390,350 +402,34 @@ sam_engineer:
     
     Create: output/infrastructure/template.yaml
     
-    **Section 1: Header & Globals**
-    ```yaml
-    AWSTemplateFormatVersion: '2010-09-09'
-    Transform: AWS::Serverless-2016-10-31
-    Description: Serverless application infrastructure
-    
-    Globals:
-      Function:
-        Runtime: python3.11  # From code analysis
-        Timeout: 30
-        MemorySize: 512
-        Environment:
-          Variables:
-            ENVIRONMENT: !Ref Environment
-        Tracing: Active  # Enable X-Ray
-      Api:  # If using REST API
-        Cors:
-          AllowOrigin: "'*'"
-          AllowHeaders: "'Content-Type,Authorization'"
-          AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
-    ```
-    
-    **Section 2: Parameters**
-    ```yaml
-    Parameters:
-      Environment:
-        Type: String
-        Default: dev
-        AllowedValues: [dev, staging, prod]
-    ```
-    
-    **Section 3: Lambda Functions**
-    For EACH Lambda found in output/backend/lambdas/:
-    ```yaml
-    {LambdaName}Function:
-      Type: AWS::Serverless::Function
-      Properties:
-        CodeUri: backend/lambdas/{lambda_name}/
-        Handler: handler.lambda_handler  # From actual code
-        Runtime: python3.11  # From file extension
-        Environment:
-          Variables:
-            # Add env vars for all AWS resources this Lambda uses
-            TABLE_NAME: !Ref TableName
-            QUEUE_URL: !Ref QueueName
-            BUCKET_NAME: !Ref BucketName
-        Policies:
-          # Use SAM policy templates for least privilege
-          - DynamoDBCrudPolicy:
-              TableName: !Ref TableName
-          - SQSSendMessagePolicy:
-              QueueName: !GetAtt QueueName.QueueName
-          - S3CrudPolicy:
-              BucketName: !Ref BucketName
-        Events:
-          # From blueprint entry_points
-          ApiEvent1:
-            Type: Api  # or HttpApi
-            Properties:
-              Path: /api/resource
-              Method: GET
-          # Add SQS trigger if Lambda processes queue
-          QueueEvent:
-            Type: SQS
-            Properties:
-              Queue: !GetAtt QueueName.Arn
-              BatchSize: 10
-          # Add S3 trigger if Lambda processes uploads
-          S3Event:
-            Type: S3
-            Properties:
-              Bucket: !Ref BucketName
-              Events: s3:ObjectCreated:*
-    ```
-    
-    **Section 4: DynamoDB Tables**
-    
-    ⭐ CRITICAL: Extract table schemas from ACTUAL SOURCE FILES, not from blueprint.
-    
-    **Strategy 1: Read Schema Definition Files (RECOMMENDED)**
-    1. Read analysis_report.json → get dynamodb_info.schema_files
-       Example: ["dynamodb.py", "init_dynamodb.py", "backend/config/db.js", "scripts/init-db.js"]
-    
-    2. For each schema file, use ReadFileTool to read its content
-    
-    3. Look for table creation patterns:
-       
-       **Python patterns:**
-       ```python
-       dynamodb.create_table(
-           TableName='UsersTable',  # or variable
-           KeySchema=[
-               {'AttributeName': 'userId', 'KeyType': 'HASH'},
-               {'AttributeName': 'createdAt', 'KeyType': 'RANGE'}  # if composite key
-           ],
-           AttributeDefinitions=[...],
-           GlobalSecondaryIndexes=[...]
-       )
-       ```
-       
-       **JavaScript patterns:**
-       ```javascript
-       await dynamodb.createTable({
-         TableName: 'users-table',
-         KeySchema: [
-           { AttributeName: 'userId', KeyType: 'HASH' }
-         ],
-         AttributeDefinitions: [...],
-         GlobalSecondaryIndexes: [...]
-       });
-       ```
-    
-    4. Extract the following information:
-       - TableName (use probable_tables as hints if using variables)
-       - KeySchema → partition_key (HASH), sort_key (RANGE, optional)
-       - AttributeDefinitions → attribute names and types (S/N/B)
-       - GlobalSecondaryIndexes → GSI name and keys
-       - BillingMode → PAY_PER_REQUEST or PROVISIONED
-    
-    **Strategy 2: Analyze Generated Lambda Code (FALLBACK)**
-    If schema files don't have clear definitions:
-    1. Read all Lambda handler code
-    2. Find DynamoDB operations:
-       - table.get_item(Key={'userId': x}) → partition_key: userId
-       - table.query(IndexName='EmailIndex') → has GSI: EmailIndex
-    3. Infer minimal schema from usage patterns
-    
-    **Strategy 3: Use Defaults (LAST RESORT)**
-    If no schema found:
-    1. Create simple table with partition key 'id' (String)
-    2. Add comment: "⚠️ Schema inferred, review before deployment"
-    
-    Example output:
-    ```yaml
-    UsersTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: !Sub ${Environment}-users
-        AttributeDefinitions:
-          - AttributeName: userId
-            AttributeType: S
-          - AttributeName: email
-            AttributeType: S
-        KeySchema:
-          - AttributeName: userId
-            KeyType: HASH
-        GlobalSecondaryIndexes:
-          - IndexName: email-index
-            KeySchema:
-              - AttributeName: email
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-        BillingMode: PAY_PER_REQUEST
-        StreamSpecification:
-          StreamViewType: NEW_AND_OLD_IMAGES  # If event-driven patterns detected
-    ```
-    
-    **Section 5: SQS Queues**
-    If blueprint.backend_architecture.async_processing has queues:
-    ```yaml
-    {QueueName}:
-      Type: AWS::SQS::Queue
-      Properties:
-        QueueName: !Sub ${Environment}-{queue-name}
-        VisibilityTimeout: 300
-        MessageRetentionPeriod: 345600
-        RedrivePolicy:
-          deadLetterTargetArn: !GetAtt {QueueName}DLQ.Arn
-          maxReceiveCount: 3
-    
-    {QueueName}DLQ:
-      Type: AWS::SQS::Queue
-      Properties:
-        QueueName: !Sub ${Environment}-{queue-name}-dlq
-    ```
-    
-    **Section 6: SNS Topics**
-    If blueprint has pub/sub messaging:
-    ```yaml
-    {TopicName}:
-      Type: AWS::SNS::Topic
-      Properties:
-        TopicName: !Sub ${Environment}-{topic-name}
-        Subscription:
-          - Endpoint: !GetAtt SubscriberFunction.Arn
-            Protocol: lambda
-    
-    {FunctionName}SnsPermission:
-      Type: AWS::Lambda::Permission
-      Properties:
-        FunctionName: !Ref SubscriberFunction
-        Action: lambda:InvokeFunction
-        Principal: sns.amazonaws.com
-        SourceArn: !Ref {TopicName}
-    ```
-    
-    **Section 7: EventBridge Rules**
-    If blueprint has scheduled tasks or event-driven architecture:
-    ```yaml
-    {RuleName}:
-      Type: AWS::Events::Rule
-      Properties:
-        Name: !Sub ${Environment}-{rule-name}
-        ScheduleExpression: "rate(5 minutes)"  # or event pattern
-        State: ENABLED
-        Targets:
-          - Arn: !GetAtt TargetFunction.Arn
-            Id: Target1
-    
-    {FunctionName}EventPermission:
-      Type: AWS::Lambda::Permission
-      Properties:
-        FunctionName: !Ref TargetFunction
-        Action: lambda:InvokeFunction
-        Principal: events.amazonaws.com
-        SourceArn: !GetAtt {RuleName}.Arn
-    ```
-    
-    **Section 8: S3 Buckets**
-    If blueprint has file storage:
-    ```yaml
-    {BucketName}:
-      Type: AWS::S3::Bucket
-      Properties:
-        BucketName: !Sub ${Environment}-{bucket-name}
-        PublicAccessBlockConfiguration:
-          BlockPublicAcls: true
-          BlockPublicPolicy: true
-        CorsConfiguration:  # If frontend uploads
-          CorsRules:
-            - AllowedOrigins: ["*"]
-              AllowedMethods: [GET, PUT, POST]
-    ```
-    
-    **Section 9: Step Functions**
-    If output/backend/statemachines/ has .asl.json files:
-    ```yaml
-    {WorkflowName}StateMachine:
-      Type: AWS::Serverless::StateMachine
-      Properties:
-        DefinitionUri: backend/statemachines/{workflow}.asl.json
-        DefinitionSubstitutions:
-          Function1Arn: !GetAtt Function1.Arn
-          TableName: !Ref TableName
-        Policies:
-          - LambdaInvokePolicy:
-              FunctionName: !Ref Function1
-          - DynamoDBCrudPolicy:
-              TableName: !Ref TableName
-    ```
-    
-    **Section 10: Lambda Layers**
-    If output/backend/layers/ exists:
-    ```yaml
-    CommonLayer:
-      Type: AWS::Serverless::LayerVersion
-      Properties:
-        LayerName: common-utils
-        ContentUri: backend/layers/common_utils/
-        CompatibleRuntimes:
-          - python3.11
-    ```
-    
-    **Section 11: Outputs**
-    ```yaml
-    Outputs:
-      ApiEndpoint:
-        Description: API Gateway endpoint
-        Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
-        Export:
-          Name: !Sub ${AWS::StackName}-ApiUrl
-      
-      # Export all resource ARNs/names that frontend might need
-      {TableName}Name:
-        Value: !Ref {TableName}
-      
-      UserPoolId:
-        Value: !Ref UserPool
-        Condition: HasCognito
-    ```
+    **Refer to Knowledge Base "Standard SAM Template Structure" and "Resource Patterns" for:**
+    1.  **Header & Globals**: Runtime, timeout, tracing configuration.
+    2.  **Parameters**: Environment variables.
+    3.  **Lambda Functions**: Define AWS::Serverless::Function resources using the CodeUri, Handler, and Env Vars found in your analysis.
+    4.  **DynamoDB Tables**:
+        ⭐ CRITICAL: Extract table schemas from ACTUAL SOURCE FILES, not just blueprint hints.
+        - Strategy 1: Read schema definition files (e.g., `dynamodb.py`, `models.py`) mentioned in analysis_report.
+        - Strategy 2: Analyze generated Lambda code for boto3 usage.
+        - Refer to "DynamoDB Table Pattern" in Knowledge Base.
+    5.  **SQS/SNS/EventBridge**: Define resources if async processing is detected.
+    6.  **Step Functions**: Link .asl.json files.
+    7.  **Lambda Layers**: Define shared layers if present.
+    8.  **Outputs**: Export API Endpoint, Table Names, User Pool IDs.
     
     ============================================================
     PHASE 3: GENERATE COGNITO TEMPLATE (if needed)
     ============================================================
     
     If blueprint.auth_architecture.strategy == "Cognito User Pools":
-    
-    Create: output/infrastructure/cognito.yaml
-    
-    ```yaml
-    AWSTemplateFormatVersion: '2010-09-09'
-    
-    Resources:
-      UserPool:
-        Type: AWS::Cognito::UserPool
-        Properties:
-          UserPoolName: !Sub ${Environment}-users
-          AutoVerifiedAttributes:
-            - email
-          Schema:
-            - Name: email
-              Required: true
-          Policies:
-            PasswordPolicy:
-              MinimumLength: 8
-              RequireUppercase: true
-              RequireLowercase: true
-              RequireNumbers: true
-          MfaConfiguration: OPTIONAL  # From blueprint
-      
-      UserPoolClient:
-        Type: AWS::Cognito::UserPoolClient
-        Properties:
-          UserPoolId: !Ref UserPool
-          GenerateSecret: false
-          ExplicitAuthFlows:
-            - ALLOW_USER_PASSWORD_AUTH
-            - ALLOW_REFRESH_TOKEN_AUTH
-    
-    Outputs:
-      UserPoolId:
-        Value: !Ref UserPool
-        Export:
-          Name: !Sub ${AWS::StackName}-UserPoolId
-      UserPoolClientId:
-        Value: !Ref UserPoolClient
-        Export:
-          Name: !Sub ${AWS::StackName}-UserPoolClientId
-    ```
+    - Create: output/infrastructure/cognito.yaml
+    - Refer to **"Cognito Template (Optional)"** in Knowledge Base for the standard resource definition.
     
     ============================================================
     PHASE 4: GENERATE PARAMETERS FILE
     ============================================================
     
     Create: output/infrastructure/parameters.json
-    
-    ```json
-    {
-      "Parameters": {
-        "Environment": "dev"
-      }
-    }
-    ```
+    - Refer to Knowledge Base for structure.
     
     ============================================================
     PHASE 5: VALIDATION & REFINEMENT
@@ -745,13 +441,13 @@ sam_engineer:
     ```
     If errors found:
     - Analyze error message
-    - Use SAMDocSearchTool to look up correct syntax
+  
     - Fix the issue
     - Re-validate
     
     **Step 5.2: Cross-Check with Code**
     1. Every Lambda directory → Has SAM Function resource
-    2. Every boto3 call in code → Has corresponding IAM policy
+    2. Every boto3 call in code → Has corresponding IAM policy (Refer to "SAM Policy Templates Reference" in Knowledge Base)
     3. Every env var in code → Defined in template
     4. Every event source → Has permission resource
     
@@ -773,22 +469,3 @@ sam_engineer:
     6. **Validate Always**: Must pass SAMValidateTool before finalizing
     7. **Document**: Add comments for complex resources
     8. **Split Wisely**: Separate Cognito if it's reusable across stacks
-    
-    ============================================================
-    SAM POLICY TEMPLATES (Use These!)
-    ============================================================
-    
-    Common SAM policy templates to use:
-    - DynamoDBCrudPolicy: Full CRUD on specific table
-    - DynamoDBReadPolicy: Read-only access
-    - SQSSendMessagePolicy: Send messages to queue
-    - SQSPollerPolicy: Read/delete from queue
-    - S3CrudPolicy: Full CRUD on bucket
-    - S3ReadPolicy: Read-only access
-    - SNSPublishMessagePolicy: Publish to topic
-    - LambdaInvokePolicy: Invoke another Lambda
-    - StepFunctionsExecutionPolicy: Start executions
-    - EventBridgePutEventsPolicy: Put events to bus
-    
-    Use SAMDocSearchTool if you need syntax examples!
-
