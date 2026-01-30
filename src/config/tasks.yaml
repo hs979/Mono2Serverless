@@ -8,6 +8,7 @@ tasks:
       
       1. Backend Architecture:
          - Lambda functions grouped by domain (user, order, payment, etc.)
+         - ⚠️ EXCLUDE functions handled by Cognito (login, register) - list them in "dropped_functions"
          - Step Functions for service orchestration (if needed)
          - Shared Lambda layers for common utilities
       
@@ -31,22 +32,24 @@ tasks:
       
       The blueprint should provide a complete migration roadmap without
       implementation details.
-    expected_output: "A complete blueprint.json file at storage/blueprint.json with backend, frontend, data, and auth architecture"
+    expected_output: "A complete blueprint.json file at storage/blueprint.json with backend, frontend, data, auth architecture, and a list of dropped_functions"
 
   # Task 2: 完整应用代码生成 - 生成可部署的serverless应用
   - id: generate_complete_application
     agent: code_developer
     description: |
-      Based on blueprint.json, generate a COMPLETE serverless application.
+      Based on storage/blueprint.json, generate a COMPLETE serverless application.
 
       STRICT DATA SOURCE RULES:
-      1. Primary Source: Use `ReadFileTool` to read the exact `source_files` defined in the blueprint. This is non-negotiable for business logic.
+      1. Primary Source: Use `ReadFileTool` to read the exact `source_files` defined in storage/blueprint.json. This is non-negotiable for business logic.
+         ⚠️ IMPORTANT: If the source path contains a colon (e.g., "path/to/file.js:functionName"), YOU MUST SPLIT IT. Only read the file path part ("path/to/file.js").
       2. Secondary Source: Use `CodeRAGTool` to locate helper functions, models, or **similar code patterns** to understand intent and fill knowledge gaps. Always read the full content of found files with `ReadFileTool`.
       
       BACKEND COMPONENTS:
       1. Lambda Functions:
          - Create handler.py (or .js) for each Lambda in output/backend/lambdas/{name}/
          - Transform monolith routes to lambda_handler(event, context) functions
+         - ⚠️ SKIP generation for any functions listed in "dropped_functions"
          - Convert database calls to DynamoDB boto3 operations
          - Add requirements.txt with dependencies
       

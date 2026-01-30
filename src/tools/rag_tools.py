@@ -1,8 +1,11 @@
 from pathlib import Path
 from typing import Optional, Type
+import os
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
-from llama_index.core import StorageContext, load_index_from_storage
+from llama_index.core import StorageContext, load_index_from_storage, Settings
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.llms.openai import OpenAI
 
 class CodeRAGInput(BaseModel):
     """Input schema for CodeRAGTool."""
@@ -22,6 +25,21 @@ class CodeRAGTool(BaseTool):
         
         # Initialize LlamaIndex
         try:
+            # Explicitly set the embedding model to match build_rag.py
+            Settings.embed_model = HuggingFaceEmbedding(model_name="microsoft/codebert-base")
+            
+            # Configure LLM for LlamaIndex to use DeepSeek/OpenAI from env
+            api_base = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
+            api_key = os.getenv("OPENAI_API_KEY")
+            model_name = os.getenv("OPENAI_MODEL_NAME", "gpt-3.5-turbo")
+            
+            Settings.llm = OpenAI(
+                model=model_name,
+                api_key=api_key,
+                api_base=api_base,
+                temperature=0.1
+            )
+
             if self.index_dir.exists():
                 storage_context = StorageContext.from_defaults(persist_dir=str(self.index_dir))
                 index = load_index_from_storage(storage_context)

@@ -65,10 +65,11 @@ architect:
     - Apply single-responsibility principle (5-10 routes per Lambda max)
     
     ⚠️ CRITICAL: "Drop, Don't Migrate" Rule for Auth
-    - IF you recommend Cognito (Standard Auth), DO NOT create Lambdas for:
+    - IF you recommend Cognito (Standard Auth), YOU ARE FORBIDDEN from creating Lambdas for:
       * Login / Register / Logout
-      * Password Reset / Forgot Password
-      * Token Refresh
+      * Password Reset / Forgot Password / Verify Token
+    - REASON: Creating these Lambdas creates a "Dual Auth" anti-pattern.
+    - ACTION: Instead of creating a Lambda, add these to a "dropped_functions" list in the blueprint.
     - These features are handled natively by Cognito.
     - MARK these endpoints as "Handled by Cognito Infrastructure" in the blueprint.
     
@@ -80,7 +81,10 @@ architect:
       → Use SNS for notifications (e.g., order status updates to multiple subscribers)
     
     - **Multi-Step Workflows?**
-      → Use Step Functions for orchestration (e.g., order processing: validate → charge → ship → notify)
+      → Use Step Functions for LONG-RUNNING or COMPLEX ORCHESTRATION (e.g., Order Fulfilment).
+      ⚠️ DO NOT use Step Functions for:
+      - Synchronous User Registration (Use Cognito)
+      - Simple sequences (Use Lambda code)
     
     - **Event-Driven Architecture?**
       → Use EventBridge for decoupling (e.g., "OrderPlaced" event triggers inventory, notification, analytics)
@@ -109,8 +113,11 @@ architect:
        - Define logical tables (not physical schema details like KeySchema)
        - Record which services access which tables
        - Record schema source files for SAM Engineer to read
-       - ⚠️ CRITICAL: If using Cognito, REMOVE the legacy "Users" table if it only stores credentials (email/password/hash).
-         Cognito User Pool replaces this. Only keep a Users table if it stores application-specific profiles linked by Cognito Sub ID.
+       - ⚠️ CRITICAL: The "Users" Table Rule
+         - IF table stores ONLY credentials (email, password, hash) -> DELETE IT. (Cognito handles this)
+         - IF table stores profiles (bio, settings) -> KEEP IT, but rename to "UserProfiles".
+         - NEVER allow "Dual Write" (writing to both Cognito and DynamoDB in a synchronous Lambda).
+         - Profile creation must happen asynchronously via Cognito Post-Confirmation Trigger.
        - Identify if caching is needed → Add ElastiCache
        - Identify if large files are stored → Add S3 for object storage
        - Session data → Plan TTL strategy
