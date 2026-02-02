@@ -1,0 +1,106 @@
+{
+  "project_structure": "monolith-app/\n└── backend\n    ├── database.py\n    ├── init_dynamodb.py\n    ├── main.py\n    ├── metadata.json\n    ├── output\n    │   └── html\n    ├── processing.py\n    └── requirements.txt",
+  "entry_points": [],
+  "dependency_graph": {
+    "backend/database.py": [
+      "boto3",
+      "datetime",
+      "os"
+    ],
+    "backend/init_dynamodb.py": [
+      "boto3",
+      "botocore.exceptions",
+      "os",
+      "sys"
+    ],
+    "backend/main.py": [
+      "argparse",
+      "database",
+      "os",
+      "processing",
+      "sys"
+    ],
+    "backend/processing.py": [
+      "boto3",
+      "markdown",
+      "os"
+    ]
+  },
+  "file_tags": {
+    "backend/database.py": [
+      "AWS_SDK",
+      "DynamoDB"
+    ],
+    "backend/init_dynamodb.py": [
+      "AWS_SDK",
+      "DynamoDB"
+    ],
+    "backend/main.py": [
+      "DynamoDB"
+    ],
+    "backend/processing.py": [
+      "AWS_SDK"
+    ]
+  },
+  "symbol_table": [
+    {
+      "id": "backend.database.save_sentiment",
+      "file_path": "backend/database.py",
+      "start_line": 18,
+      "end_line": 50
+    },
+    {
+      "id": "backend.init_dynamodb.get_dynamodb_client",
+      "file_path": "backend/init_dynamodb.py",
+      "start_line": 16,
+      "end_line": 18
+    },
+    {
+      "id": "backend.init_dynamodb.table_exists",
+      "file_path": "backend/init_dynamodb.py",
+      "start_line": 20,
+      "end_line": 28
+    },
+    {
+      "id": "backend.init_dynamodb.wait_for_table",
+      "file_path": "backend/init_dynamodb.py",
+      "start_line": 30,
+      "end_line": 41
+    },
+    {
+      "id": "backend.init_dynamodb.create_sentiment_table",
+      "file_path": "backend/init_dynamodb.py",
+      "start_line": 43,
+      "end_line": 115
+    },
+    {
+      "id": "backend.main.main",
+      "file_path": "backend/main.py",
+      "start_line": 7,
+      "end_line": 73
+    },
+    {
+      "id": "backend.processing.convert_to_html",
+      "file_path": "backend/processing.py",
+      "start_line": 5,
+      "end_line": 46
+    },
+    {
+      "id": "backend.processing.analyze_sentiment",
+      "file_path": "backend/processing.py",
+      "start_line": 48,
+      "end_line": 108
+    }
+  ],
+  "dynamodb_info": {
+    "used": true,
+    "probable_tables": [
+      "ref-arch-fileprocessing-sentiment"
+    ],
+    "schema_files": [
+      "backend/init_dynamodb.py",
+      "backend/database.py",
+      "backend/main.py"
+    ]
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "Comment": "Orchestrates file processing: convert to HTML, analyze sentiment, save to DynamoDB",
+  "StartAt": "ConvertToHtml",
+  "States": {
+    "ConvertToHtml": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ConvertToHtmlLambdaArn}",
+        "Payload": {
+          "input.$": "$"
+        }
+      },
+      "ResultSelector": {
+        "html_content.$": "$.Payload.body.html_content",
+        "filename.$": "$.Payload.body.filename"
+      },
+      "ResultPath": "$.conversionResult",
+      "Next": "AnalyzeSentiment",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ErrorHandling"
+        }
+      ]
+    },
+    "AnalyzeSentiment": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${AnalyzeSentimentLambdaArn}",
+        "Payload": {
+          "content.$": "$.conversionResult.html_content",
+          "filename.$": "$.conversionResult.filename"
+        }
+      },
+      "ResultSelector": {
+        "Sentiment.$": "$.Payload.body.Sentiment",
+        "SentimentScore.$": "$.Payload.body.SentimentScore",
+        "filename.$": "$.Payload.body.filename",
+        "text_preview.$": "$.Payload.body.text_preview"
+      },
+      "ResultPath": "$.sentimentResult",
+      "Next": "SaveSentiment",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ErrorHandling"
+        }
+      ]
+    },
+    "SaveSentiment": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${SaveSentimentLambdaArn}",
+        "Payload": {
+          "filename.$": "$.sentimentResult.filename",
+          "Sentiment.$": "$.sentimentResult.Sentiment",
+          "SentimentScore.$": "$.sentimentResult.SentimentScore",
+          "text_preview.$": "$.sentimentResult.text_preview",
+          "html_content.$": "$.conversionResult.html_content"
+        }
+      },
+      "ResultPath": "$.saveResult",
+      "End": true,
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ErrorHandling"
+        }
+      ]
+    },
+    "ErrorHandling": {
+      "Type": "Fail",
+      "Error": "FileProcessingFailed",
+      "Cause": "An error occurred during file processing."
+    }
+  }
+}

@@ -1,0 +1,153 @@
+{
+  "backend_architecture": {
+    "lambda_functions": {
+      "processing_domain": [
+        {
+          "name": "ConvertToHtmlLambda",
+          "description": "Converts markdown content to HTML",
+          "source": "backend/processing.py:convert_to_html",
+          "runtime": "python3.12",
+          "memory": 128,
+          "timeout": 30,
+          "environment": {},
+          "triggers": ["API Gateway", "S3 Event", "EventBridge"],
+          "layers": ["CommonUtilitiesLayer"]
+        },
+        {
+          "name": "AnalyzeSentimentLambda",
+          "description": "Analyzes sentiment of text content",
+          "source": "backend/processing.py:analyze_sentiment",
+          "runtime": "python3.12",
+          "memory": 256,
+          "timeout": 60,
+          "environment": {},
+          "triggers": ["Step Functions", "SQS", "EventBridge"],
+          "layers": ["CommonUtilitiesLayer"]
+        }
+      ],
+      "storage_domain": [
+        {
+          "name": "SaveSentimentLambda",
+          "description": "Saves sentiment analysis results to DynamoDB",
+          "source": "backend/database.py:save_sentiment",
+          "runtime": "python3.12",
+          "memory": 128,
+          "timeout": 30,
+          "environment": {
+            "SENTIMENT_TABLE": "ref-arch-fileprocessing-sentiment"
+          },
+          "triggers": ["Step Functions", "SNS", "EventBridge"],
+          "layers": ["CommonUtilitiesLayer"]
+        }
+      ]
+    },
+    "step_functions": [
+      {
+        "name": "FileProcessingWorkflow",
+        "description": "Orchestrates file processing: convert to HTML, analyze sentiment, save to DynamoDB",
+        "states": [
+          "ConvertToHtml",
+          "AnalyzeSentiment",
+          "SaveSentiment",
+          "ErrorHandling"
+        ],
+        "trigger": "S3 Object Created Event",
+        "output": "Processing result with sentiment score"
+      }
+    ],
+    "shared_lambda_layers": [
+      {
+        "name": "CommonUtilitiesLayer",
+        "description": "Contains common dependencies: boto3, markdown, etc.",
+        "compatible_runtimes": ["python3.12"],
+        "packages": ["boto3", "markdown"]
+      }
+    ]
+  },
+  "frontend_architecture": null,
+  "data_architecture": {
+    "dynamodb_tables": [
+      {
+        "table_name": "ref-arch-fileprocessing-sentiment",
+        "schema": {
+          "partition_key": {
+            "name": "id",
+            "type": "S"
+          },
+          "sort_key": {
+            "name": "timestamp",
+            "type": "N"
+          },
+          "attributes": [
+            {"name": "content", "type": "S"},
+            {"name": "sentiment_score", "type": "N"},
+            {"name": "sentiment_label", "type": "S"},
+            {"name": "html_content", "type": "S"}
+          ]
+        },
+        "indexes": [
+          {
+            "name": "SentimentScoreIndex",
+            "type": "GSI",
+            "partition_key": "sentiment_label",
+            "sort_key": "sentiment_score"
+          }
+        ],
+        "relationships": []
+      }
+    ]
+  },
+  "authentication_strategy": {
+    "cognito_user_pools": null,
+    "frontend_integration": null
+  },
+  "api_gateway_configuration": {
+    "rest_api": {
+      "name": "FileProcessingAPI",
+      "description": "API for file processing and sentiment analysis",
+      "resources": [
+        {
+          "path": "/process",
+          "methods": ["POST"],
+          "integration": "ConvertToHtmlLambda",
+          "cors": false
+        },
+        {
+          "path": "/analyze",
+          "methods": ["POST"],
+          "integration": "AnalyzeSentimentLambda",
+          "cors": false
+        }
+      ]
+    },
+    "cors_settings": null,
+    "stages": ["dev", "prod"]
+  },
+  "dropped_functions": [
+    {
+      "name": "get_dynamodb_client",
+      "source": "backend/init_dynamodb.py:get_dynamodb_client",
+      "reason": "Infrastructure script - will be replaced by SAM/CDK resource"
+    },
+    {
+      "name": "table_exists",
+      "source": "backend/init_dynamodb.py:table_exists",
+      "reason": "Infrastructure script - will be replaced by SAM/CDK resource"
+    },
+    {
+      "name": "wait_for_table",
+      "source": "backend/init_dynamodb.py:wait_for_table",
+      "reason": "Infrastructure script - will be replaced by SAM/CDK resource"
+    },
+    {
+      "name": "create_sentiment_table",
+      "source": "backend/init_dynamodb.py:create_sentiment_table",
+      "reason": "Infrastructure script - will be replaced by SAM/CDK resource"
+    },
+    {
+      "name": "main",
+      "source": "backend/main.py:main",
+      "reason": "Orchestration logic - replaced by Step Functions and API Gateway"
+    }
+  ]
+}

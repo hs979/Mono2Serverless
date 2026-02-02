@@ -1,0 +1,314 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless file processing application with sentiment analysis
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 128
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+    Tracing: Active
+  Api:
+    Cors:
+      AllowOrigin: "'*'"
+      AllowHeaders: "'Content-Type,Authorization'"
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment
+
+Resources:
+  # Lambda Layer
+  CommonUtilitiesLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub ${Environment}-common-utilities
+      ContentUri: backend/layers/CommonUtilitiesLayer/
+      CompatibleRuntimes:
+        - python3.12
+      RetentionPolicy: Retain
+
+  # DynamoDB Table
+  SentimentTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-ref-arch-fileprocessing-sentiment
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: N
+        - AttributeName: sentiment_label
+          AttributeType: S
+        - AttributeName: sentiment_score
+          AttributeType: N
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: SentimentScoreIndex
+          KeySchema:
+            - AttributeName: sentiment_label
+              KeyType: HASH
+            - AttributeName: sentiment_score
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  # Lambda Functions
+  ConvertToHtmlLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${Environment}-ConvertToHtmlLambda
+      Description: Converts markdown content to HTML
+      CodeUri: backend/lambdas/ConvertToHtmlLambda/
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      MemorySize: 128
+      Timeout: 30
+      Layers:
+        - !Ref CommonUtilitiesLayer
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref ProcessingBucket
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: !Sub arn:aws:s3:::${ProcessingBucket}/*
+      Events:
+        ProcessApi:
+          Type: Api
+          Properties:
+            Path: /process
+            Method: POST
+            RestApiId: !Ref FileProcessingApi
+
+  AnalyzeSentimentLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${Environment}-AnalyzeSentimentLambda
+      Description: Analyzes sentiment of text content
+      CodeUri: backend/lambdas/AnalyzeSentimentLambda/
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      MemorySize: 256
+      Timeout: 60
+      Layers:
+        - !Ref CommonUtilitiesLayer
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - comprehend:DetectSentiment
+                - comprehend:DetectDominantLanguage
+              Resource: "*"
+
+  SaveSentimentLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${Environment}-SaveSentimentLambda
+      Description: Saves sentiment analysis results to DynamoDB
+      CodeUri: backend/lambdas/SaveSentimentLambda/
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      MemorySize: 128
+      Timeout: 30
+      Layers:
+        - !Ref CommonUtilitiesLayer
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SENTIMENT_TABLE: !Ref SentimentTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SentimentTable
+
+  # Step Functions State Machine
+  FileProcessingWorkflow:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: backend/statemachines/FileProcessingWorkflow.asl.json
+      DefinitionSubstitutions:
+        ConvertToHtmlLambdaArn: !GetAtt ConvertToHtmlLambda.Arn
+        AnalyzeSentimentLambdaArn: !GetAtt AnalyzeSentimentLambda.Arn
+        SaveSentimentLambdaArn: !GetAtt SaveSentimentLambda.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ConvertToHtmlLambda
+        - LambdaInvokePolicy:
+            FunctionName: !Ref AnalyzeSentimentLambda
+        - LambdaInvokePolicy:
+            FunctionName: !Ref SaveSentimentLambda
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SentimentTable
+
+  # S3 Bucket for file processing
+  ProcessingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Environment}-file-processing-bucket-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - DELETE
+            AllowedHeaders:
+              - "*"
+            MaxAge: 3000
+
+  # EventBridge Rule to trigger Step Functions from S3
+  S3ToStepFunctionsRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Trigger Step Functions workflow when markdown files are uploaded to S3
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - "AWS API Call via CloudTrail"
+        detail:
+          eventSource:
+            - s3.amazonaws.com
+          eventName:
+            - PutObject
+            - CompleteMultipartUpload
+            - CopyObject
+          requestParameters:
+            bucketName:
+              - !Ref ProcessingBucket
+            key:
+              suffix: ".md"
+      State: ENABLED
+      Targets:
+        - Arn: !Ref FileProcessingWorkflow
+          Id: TriggerFileProcessingWorkflow
+          RoleArn: !GetAtt EventBridgeInvokeRole.Arn
+
+  # IAM Role for EventBridge to invoke Step Functions
+  EventBridgeInvokeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeStepFunctions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: states:StartExecution
+                Resource: !Ref FileProcessingWorkflow
+
+  # API Gateway
+  FileProcessingApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub ${Environment}-FileProcessingAPI
+      StageName: !Ref Environment
+      DefinitionBody:
+        openapi: 3.0.1
+        info:
+          title: !Sub ${Environment}-FileProcessingAPI
+          version: "1.0"
+        paths:
+          /process:
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConvertToHtmlLambda.Arn}/invocations
+                passthroughBehavior: when_no_match
+              responses: {}
+          /analyze:
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AnalyzeSentimentLambda.Arn}/invocations
+                passthroughBehavior: when_no_match
+              responses: {}
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${FileProcessingApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+    Export:
+      Name: !Sub ${AWS::StackName}-ApiEndpoint
+
+  SentimentTableName:
+    Description: DynamoDB table name for sentiment data
+    Value: !Ref SentimentTable
+    Export:
+      Name: !Sub ${AWS::StackName}-SentimentTableName
+
+  ProcessingBucketName:
+    Description: S3 bucket for file processing
+    Value: !Ref ProcessingBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-ProcessingBucketName
+
+  FileProcessingWorkflowArn:
+    Description: Step Functions workflow ARN
+    Value: !Ref FileProcessingWorkflow
+    Export:
+      Name: !Sub ${AWS::StackName}-FileProcessingWorkflowArn
+
+  ConvertToHtmlLambdaArn:
+    Description: ConvertToHtml Lambda function ARN
+    Value: !GetAtt ConvertToHtmlLambda.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-ConvertToHtmlLambdaArn
+
+  AnalyzeSentimentLambdaArn:
+    Description: AnalyzeSentiment Lambda function ARN
+    Value: !GetAtt AnalyzeSentimentLambda.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-AnalyzeSentimentLambdaArn
+
+  SaveSentimentLambdaArn:
+    Description: SaveSentiment Lambda function ARN
+    Value: !GetAtt SaveSentimentLambda.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-SaveSentimentLambdaArn
+
+  EventBridgeRuleArn:
+    Description: EventBridge rule ARN for S3 to Step Functions triggering
+    Value: !GetAtt S3ToStepFunctionsRule.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-EventBridgeRuleArn
