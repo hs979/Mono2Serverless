@@ -149,7 +149,7 @@ def run_crew() -> None:
     print("\nGenerated artifacts:")
     print("  - storage/blueprint.json (Architecture blueprint)")
     print("  - output/backend/ (Lambda functions and shared code)")
-    print("  - output/frontend/ (Migrated frontend application)")
+    print("  - output/frontend/ (Migrated frontend application, if applicable)")
     print("  - output/infrastructure/template.yaml (AWS SAM template)")
     print("\nNext steps:")
     print("  1. Review the generated code in output/")

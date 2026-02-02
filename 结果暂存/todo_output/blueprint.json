@@ -1,0 +1,377 @@
+{
+  "backend_architecture": {
+    "lambda_functions": {
+      "todo_domain": [
+        {
+          "name": "GetTodosFunction",
+          "description": "Retrieves all todo items for the authenticated user",
+          "source": "backend/routes/todo.js:GET__item",
+          "runtime": "nodejs18.x",
+          "environment_variables": {
+            "TODO_TABLE_NAME": "!Ref TodoTable"
+          },
+          "permissions": [
+            "dynamodb:Scan",
+            "dynamodb:Query"
+          ]
+        },
+        {
+          "name": "GetTodoByIdFunction",
+          "description": "Retrieves a specific todo item by ID",
+          "source": "backend/routes/todo.js:GET__item__id",
+          "runtime": "nodejs18.x",
+          "environment_variables": {
+            "TODO_TABLE_NAME": "!Ref TodoTable"
+          },
+          "permissions": [
+            "dynamodb:GetItem"
+          ]
+        },
+        {
+          "name": "CreateTodoFunction",
+          "description": "Creates a new todo item",
+          "source": "backend/routes/todo.js:POST__item",
+          "runtime": "nodejs18.x",
+          "environment_variables": {
+            "TODO_TABLE_NAME": "!Ref TodoTable"
+          },
+          "permissions": [
+            "dynamodb:PutItem"
+          ]
+        },
+        {
+          "name": "UpdateTodoFunction",
+          "description": "Updates an existing todo item",
+          "source": "backend/routes/todo.js:PUT__item__id",
+          "runtime": "nodejs18.x",
+          "environment_variables": {
+            "TODO_TABLE_NAME": "!Ref TodoTable"
+          },
+          "permissions": [
+            "dynamodb:UpdateItem"
+          ]
+        },
+        {
+          "name": "MarkTodoDoneFunction",
+          "description": "Marks a todo item as done",
+          "source": "backend/routes/todo.js:POST__item__id_done",
+          "runtime": "nodejs18.x",
+          "environment_variables": {
+            "TODO_TABLE_NAME": "!Ref TodoTable"
+          },
+          "permissions": [
+            "dynamodb:UpdateItem"
+          ]
+        },
+        {
+          "name": "DeleteTodoFunction",
+          "description": "Deletes a todo item",
+          "source": "backend/routes/todo.js:DELETE__item__id",
+          "runtime": "nodejs18.x",
+          "environment_variables": {
+            "TODO_TABLE_NAME": "!Ref TodoTable"
+          },
+          "permissions": [
+            "dynamodb:DeleteItem"
+          ]
+        }
+      ]
+    },
+    "step_functions": {
+      "todo_workflows": []
+    },
+    "lambda_layers": [
+      {
+        "name": "CommonUtilsLayer",
+        "description": "Shared utilities for Lambda functions",
+        "files": [
+          "backend/utils/jwt.js",
+          "backend/middleware/auth.js"
+        ],
+        "compatible_runtimes": ["nodejs18.x"]
+      }
+    ],
+    "event_bridges": [],
+    "sqs_queues": [],
+    "sns_topics": []
+  },
+  "frontend_architecture": {
+    "files_requiring_migration": [
+      {
+        "source": "frontend/src/config.js",
+        "destination": "frontend/src/config.js",
+        "changes": "Replace hardcoded API URLs with environment variables and update to use AWS Amplify/Cognito authentication"
+      },
+      {
+        "source": "frontend/src/App.js",
+        "destination": "frontend/src/App.js",
+        "changes": "Update API calls to use AWS Amplify API module, integrate Cognito authentication flow"
+      }
+    ],
+    "files_to_copy_unchanged": [
+      "frontend/src/index.js",
+      "frontend/src/ToDo.js",
+      "frontend/src/App.css",
+      "frontend/src/ToDo.css",
+      "frontend/src/index.css",
+      "frontend/public/index.html",
+      "frontend/package.json",
+      "frontend/package-lock.json"
+    ],
+    "new_configuration_files": [
+      {
+        "name": ".env.example",
+        "content": "REACT_APP_API_ENDPOINT=\nREACT_APP_REGION=\nREACT_APP_USER_POOL_ID=\nREACT_APP_USER_POOL_CLIENT_ID=\nREACT_APP_IDENTITY_POOL_ID="
+      },
+      {
+        "name": "aws-exports.js",
+        "content": "const awsConfig = {\n  Auth: {\n    region: process.env.REACT_APP_REGION,\n    userPoolId: process.env.REACT_APP_USER_POOL_ID,\n    userPoolWebClientId: process.env.REACT_APP_USER_POOL_CLIENT_ID,\n    identityPoolId: process.env.REACT_APP_IDENTITY_POOL_ID\n  },\n  API: {\n    endpoints: [\n      {\n        name: 'todo-api',\n        endpoint: process.env.REACT_APP_API_ENDPOINT,\n        region: process.env.REACT_APP_REGION\n      }\n    ]\n  }\n};\n\nexport default awsConfig;"
+      }
+    ]
+  },
+  "data_architecture": {
+    "dynamodb_tables": [
+      {
+        "name": "TodoTable",
+        "description": "Stores todo items for users",
+        "schema": {
+          "TableName": "todo-monolith-table",
+          "KeySchema": [
+            {
+              "AttributeName": "userId",
+              "KeyType": "HASH"
+            },
+            {
+              "AttributeName": "todoId",
+              "KeyType": "RANGE"
+            }
+          ],
+          "AttributeDefinitions": [
+            {
+              "AttributeName": "userId",
+              "AttributeType": "S"
+            },
+            {
+              "AttributeName": "todoId",
+              "AttributeType": "S"
+            }
+          ],
+          "BillingMode": "PAY_PER_REQUEST",
+          "GlobalSecondaryIndexes": [
+            {
+              "IndexName": "StatusIndex",
+              "KeySchema": [
+                {
+                  "AttributeName": "userId",
+                  "KeyType": "HASH"
+                },
+                {
+                  "AttributeName": "status",
+                  "KeyType": "RANGE"
+                }
+              ],
+              "Projection": {
+                "ProjectionType": "ALL"
+              }
+            }
+          ]
+        },
+        "relationships": "Each todo belongs to a user (userId). No foreign key constraints as DynamoDB is schemaless."
+      }
+    ],
+    "s3_buckets": []
+  },
+  "authentication_strategy": {
+    "cognito_configuration": {
+      "user_pool": {
+        "name": "TodoUserPool",
+        "attributes": [
+          {
+            "name": "email",
+            "type": "String",
+            "required": true,
+            "mutable": true
+          },
+          {
+            "name": "name",
+            "type": "String",
+            "required": true,
+            "mutable": true
+          }
+        ],
+        "password_policy": {
+          "minimum_length": 8,
+          "require_uppercase": true,
+          "require_lowercase": true,
+          "require_numbers": true,
+          "require_symbols": true
+        },
+        "mfa": "OPTIONAL",
+        "verification": {
+          "email": true,
+          "phone": false
+        }
+      },
+      "user_pool_client": {
+        "name": "TodoWebClient",
+        "generate_secret": false,
+        "explicit_auth_flows": [
+          "ALLOW_USER_PASSWORD_AUTH",
+          "ALLOW_REFRESH_TOKEN_AUTH"
+        ],
+        "prevent_user_existence_errors": "ENABLED"
+      },
+      "identity_pool": {
+        "name": "TodoIdentityPool",
+        "allow_unauthenticated_identities": false,
+        "cognito_identity_providers": [
+          {
+            "ClientId": "!Ref TodoWebClient",
+            "ProviderName": "cognito-idp.${AWS::Region}.amazonaws.com/${TodoUserPool}"
+          }
+        ]
+      }
+    },
+    "frontend_integration": {
+      "approach": "AWS Amplify Library",
+      "authentication_flow": "USER_PASSWORD_AUTH",
+      "protected_routes": "All todo routes require authentication via Cognito JWT tokens passed in Authorization header",
+      "token_validation": "API Gateway will validate Cognito JWT tokens using built-in authorizer"
+    }
+  },
+  "api_gateway_configuration": {
+    "rest_api": {
+      "name": "TodoServerlessAPI",
+      "description": "Serverless API for Todo Application",
+      "resources": [
+        {
+          "path": "/todos",
+          "methods": [
+            {
+              "http_method": "GET",
+              "lambda_integration": "GetTodosFunction",
+              "authorization": "COGNITO_USER_POOLS",
+              "authorizer": "CognitoAuthorizer"
+            },
+            {
+              "http_method": "POST",
+              "lambda_integration": "CreateTodoFunction",
+              "authorization": "COGNITO_USER_POOLS",
+              "authorizer": "CognitoAuthorizer"
+            }
+          ]
+        },
+        {
+          "path": "/todos/{id}",
+          "methods": [
+            {
+              "http_method": "GET",
+              "lambda_integration": "GetTodoByIdFunction",
+              "authorization": "COGNITO_USER_POOLS",
+              "authorizer": "CognitoAuthorizer"
+            },
+            {
+              "http_method": "PUT",
+              "lambda_integration": "UpdateTodoFunction",
+              "authorization": "COGNITO_USER_POOLS",
+              "authorizer": "CognitoAuthorizer"
+            },
+            {
+              "http_method": "DELETE",
+              "lambda_integration": "DeleteTodoFunction",
+              "authorization": "COGNITO_USER_POOLS",
+              "authorizer": "CognitoAuthorizer"
+            }
+          ]
+        },
+        {
+          "path": "/todos/{id}/done",
+          "methods": [
+            {
+              "http_method": "POST",
+              "lambda_integration": "MarkTodoDoneFunction",
+              "authorization": "COGNITO_USER_POOLS",
+              "authorizer": "CognitoAuthorizer"
+            }
+          ]
+        }
+      ]
+    },
+    "cors_settings": {
+      "allow_origins": ["*"],
+      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "allow_headers": ["Content-Type", "Authorization", "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"],
+      "max_age": 86400
+    },
+    "stages": [
+      {
+        "name": "dev",
+        "description": "Development stage",
+        "variables": {
+          "LOG_LEVEL": "DEBUG"
+        },
+        "deployment": "Automatic via SAM pipeline"
+      },
+      {
+        "name": "prod",
+        "description": "Production stage",
+        "variables": {
+          "LOG_LEVEL": "ERROR"
+        },
+        "deployment": "Manual approval required"
+      }
+    ],
+    "authorizers": [
+      {
+        "name": "CognitoAuthorizer",
+        "type": "COGNITO_USER_POOLS",
+        "provider_arns": ["!GetAtt TodoUserPool.Arn"]
+      }
+    ]
+  },
+  "dropped_functions": [
+    {
+      "name": "POST__register",
+      "source": "backend/routes/auth.js:POST__register",
+      "reason": "Handled by Amazon Cognito User Pool sign-up feature"
+    },
+    {
+      "name": "POST__login",
+      "source": "backend/routes/auth.js:POST__login",
+      "reason": "Handled by Amazon Cognito User Pool authentication"
+    },
+    {
+      "name": "init-db.js functions",
+      "source": "backend/scripts/init-db.js",
+      "reason": "Infrastructure scripts become SAM/CloudFormation resources (DynamoDB tables)"
+    }
+  ],
+  "migration_roadmap": {
+    "phase_1": "Infrastructure Setup",
+    "phase_1_tasks": [
+      "Create SAM template with DynamoDB tables",
+      "Set up Cognito User Pool and Identity Pool",
+      "Configure IAM roles for Lambda functions"
+    ],
+    "phase_2": "Backend Migration",
+    "phase_2_tasks": [
+      "Convert todo route handlers to Lambda functions",
+      "Create Lambda layer for common utilities",
+      "Set up API Gateway with Cognito authorizer"
+    ],
+    "phase_3": "Frontend Migration",
+    "phase_3_tasks": [
+      "Install and configure AWS Amplify library",
+      "Update frontend config to use environment variables",
+      "Replace API calls with Amplify API module",
+      "Implement Cognito authentication flow"
+    ],
+    "phase_4": "Deployment & Testing",
+    "phase_4_tasks": [
+      "Set up CI/CD pipeline",
+      "Deploy to dev stage for testing",
+      "Perform integration tests",
+      "Deploy to prod stage"
+    ]
+  }
+}

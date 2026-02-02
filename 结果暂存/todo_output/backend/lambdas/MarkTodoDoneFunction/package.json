@@ -1,0 +1,9 @@
+{
+  "name": "marktodonedonefunction",
+  "version": "1.0.0",
+  "description": "Lambda function to mark a todo item as done",
+  "main": "handler.js",
+  "dependencies": {
+    "aws-sdk": "^2.1235.0"
+  }
+}

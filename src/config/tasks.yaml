@@ -9,10 +9,12 @@ tasks:
       1. Backend Architecture:
          - Lambda functions grouped by domain (user, order, payment, etc.)
          - ⚠️ EXCLUDE functions handled by Cognito (login, register) - list them in "dropped_functions"
+         - ⚠️ EXCLUDE infrastructure scripts (init_db.py, create_tables.py) - they become SAM resources, not Lambdas
          - Step Functions for service orchestration (if needed)
          - Shared Lambda layers for common utilities
       
       2. Frontend Architecture:
+         - **Condition**: Check analysis_report.file_tags. If no frontend files (e.g., tags Frontend_* or frontend/ dirs), set to `null` and SKIP.
          - Files requiring migration (API consumers, configs)
          - Files to copy unchanged (UI components)
          - New configuration files needed (.env.example, aws-exports.js)
@@ -23,16 +25,16 @@ tasks:
       
       4. Authentication Strategy:
          - Cognito User Pools configuration (if auth detected)
-         - Frontend integration approach
+         - Frontend integration approach (**IF frontend exists**)
       
       5. API Gateway Configuration:
          - REST API design
-         - CORS settings for frontend
+         - CORS settings for frontend (**IF frontend exists**)
          - Stages (dev, prod)
       
       The blueprint should provide a complete migration roadmap without
       implementation details.
-    expected_output: "A complete blueprint.json file at storage/blueprint.json with backend, frontend, data, auth architecture, and a list of dropped_functions"
+    expected_output: "A complete blueprint.json file at storage/blueprint.json with backend, frontend (optional), data, auth architecture, and a list of dropped_functions"
 
   # Task 2: 完整应用代码生成 - 生成可部署的serverless应用
   - id: generate_complete_application
@@ -60,7 +62,7 @@ tasks:
       3. Step Functions (if needed):
          - Generate .asl.json state machine definitions in output/backend/statemachines/
       
-      FRONTEND COMPONENTS:
+      FRONTEND COMPONENTS (**OPTIONAL - Skip if blueprint.frontend_architecture is null**):
       1. Migrate API Client Code:
          - Replace hardcoded URLs with environment variables
          - Update API call formats for API Gateway
@@ -75,7 +77,7 @@ tasks:
          - Copy unchanged components from monolith
       
       DOCUMENTATION:
-      - Create output/README.md with deployment guide
+      - Create output/README.md with deployment guide. Explicitly state if it is a Backend-only deployment.
       
       PROCESS:
       - Use ReadFileTool to read monolith source code from file mappings
@@ -84,7 +86,7 @@ tasks:
       
       CRITICAL: Preserve all business logic exactly as in monolith.
       Generate complete, runnable files, not code snippets.
-    expected_output: "A complete serverless application in output/ directory with backend/, frontend/, and README.md, ready for SAM deployment"
+    expected_output: "A complete serverless application in output/ directory with backend/, frontend/ (optional), and README.md, ready for SAM deployment"
 
   # Task 3: SAM模板生成 - 为生成的应用创建基础设施定义
   - id: generate_sam_templates
@@ -105,7 +107,7 @@ tasks:
       
       1. Globals Section:
          - Default Lambda settings (timeout, memory, runtime)
-         - API Gateway CORS configuration
+         - API Gateway CORS configuration (**Check if frontend exists**)
       
       2. Parameters:
          - Environment (dev/prod)
@@ -134,7 +136,7 @@ tasks:
       7. Outputs:
          - API Gateway endpoint URL
          - DynamoDB table names
-         - Other resource identifiers for frontend configuration
+         - Other resource identifiers for frontend configuration (**If frontend exists**)
       
       STEP 3: COGNITO TEMPLATE (if auth required)
       If blueprint.auth_architecture includes Cognito:
@@ -161,4 +163,3 @@ tasks:
       CRITICAL: Templates must match the ACTUAL generated code structure,
       not just the blueprint. Analyze the real output/ directory.
     expected_output: "Validated SAM template files in output/infrastructure/ (template.yaml and optionally cognito.yaml) that exactly match the generated application code"
-

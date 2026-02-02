@@ -1,0 +1,272 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless Todo Application Infrastructure
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+    Tracing: Active
+  Api:
+    Cors:
+      AllowOrigin: "'*'"
+      AllowHeaders: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      MaxAge: "'86400'"
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment
+  UserPoolArn:
+    Type: String
+    Description: ARN of the Cognito User Pool (imported from cognito stack)
+
+Resources:
+  # DynamoDB Table
+  TodoTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-todo-table
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: todoId
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: todoId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: StatusIndex
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+            - AttributeName: status
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+
+  # Lambda Layer
+  CommonUtilsLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub ${Environment}-common-utils
+      ContentUri: backend/layers/CommonUtilsLayer/
+      CompatibleRuntimes:
+        - nodejs22.x
+      RetentionPolicy: Retain
+
+  # Lambda Functions
+  GetTodosFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/lambdas/GetTodosFunction/
+      Handler: handler.handler
+      Runtime: nodejs22.x
+      Layers:
+        - !Ref CommonUtilsLayer
+      Environment:
+        Variables:
+          TODO_TABLE_NAME: !Ref TodoTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TodoTable
+      Events:
+        GetTodosApi:
+          Type: Api
+          Properties:
+            Path: /todos
+            Method: GET
+            RestApiId: !Ref TodoApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  GetTodoByIdFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/lambdas/GetTodoByIdFunction/
+      Handler: handler.handler
+      Runtime: nodejs22.x
+      Layers:
+        - !Ref CommonUtilsLayer
+      Environment:
+        Variables:
+          TODO_TABLE_NAME: !Ref TodoTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TodoTable
+      Events:
+        GetTodoByIdApi:
+          Type: Api
+          Properties:
+            Path: /todos/{id}
+            Method: GET
+            RestApiId: !Ref TodoApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  CreateTodoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/lambdas/CreateTodoFunction/
+      Handler: handler.handler
+      Runtime: nodejs22.x
+      Layers:
+        - !Ref CommonUtilsLayer
+      Environment:
+        Variables:
+          TODO_TABLE_NAME: !Ref TodoTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoTable
+      Events:
+        CreateTodoApi:
+          Type: Api
+          Properties:
+            Path: /todos
+            Method: POST
+            RestApiId: !Ref TodoApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  UpdateTodoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/lambdas/UpdateTodoFunction/
+      Handler: handler.handler
+      Runtime: nodejs22.x
+      Layers:
+        - !Ref CommonUtilsLayer
+      Environment:
+        Variables:
+          TODO_TABLE_NAME: !Ref TodoTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoTable
+      Events:
+        UpdateTodoApi:
+          Type: Api
+          Properties:
+            Path: /todos/{id}
+            Method: PUT
+            RestApiId: !Ref TodoApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  MarkTodoDoneFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/lambdas/MarkTodoDoneFunction/
+      Handler: handler.handler
+      Runtime: nodejs22.x
+      Layers:
+        - !Ref CommonUtilsLayer
+      Environment:
+        Variables:
+          TODO_TABLE_NAME: !Ref TodoTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoTable
+      Events:
+        MarkTodoDoneApi:
+          Type: Api
+          Properties:
+            Path: /todos/{id}/done
+            Method: POST
+            RestApiId: !Ref TodoApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  DeleteTodoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/lambdas/DeleteTodoFunction/
+      Handler: handler.handler
+      Runtime: nodejs22.x
+      Layers:
+        - !Ref CommonUtilsLayer
+      Environment:
+        Variables:
+          TODO_TABLE_NAME: !Ref TodoTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoTable
+      Events:
+        DeleteTodoApi:
+          Type: Api
+          Properties:
+            Path: /todos/{id}
+            Method: DELETE
+            RestApiId: !Ref TodoApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  # API Gateway
+  TodoApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub ${Environment}-todo-api
+      StageName: !Ref Environment
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !Ref UserPoolArn
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${TodoApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+    Export:
+      Name: !Sub ${AWS::StackName}-ApiEndpoint
+  TodoTableName:
+    Description: DynamoDB Todo Table Name
+    Value: !Ref TodoTable
+    Export:
+      Name: !Sub ${AWS::StackName}-TodoTableName
+  GetTodosFunctionArn:
+    Description: GetTodosFunction ARN
+    Value: !GetAtt GetTodosFunction.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-GetTodosFunctionArn
+  GetTodoByIdFunctionArn:
+    Description: GetTodoByIdFunction ARN
+    Value: !GetAtt GetTodoByIdFunction.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-GetTodoByIdFunctionArn
+  CreateTodoFunctionArn:
+    Description: CreateTodoFunction ARN
+    Value: !GetAtt CreateTodoFunction.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-CreateTodoFunctionArn
+  UpdateTodoFunctionArn:
+    Description: UpdateTodoFunction ARN
+    Value: !GetAtt UpdateTodoFunction.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-UpdateTodoFunctionArn
+  MarkTodoDoneFunctionArn:
+    Description: MarkTodoDoneFunction ARN
+    Value: !GetAtt MarkTodoDoneFunction.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-MarkTodoDoneFunctionArn
+  DeleteTodoFunctionArn:
+    Description: DeleteTodoFunction ARN
+    Value: !GetAtt DeleteTodoFunction.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-DeleteTodoFunctionArn
+  CommonUtilsLayerArn:
+    Description: CommonUtilsLayer ARN
+    Value: !Ref CommonUtilsLayer
+    Export:
+      Name: !Sub ${AWS::StackName}-CommonUtilsLayerArn

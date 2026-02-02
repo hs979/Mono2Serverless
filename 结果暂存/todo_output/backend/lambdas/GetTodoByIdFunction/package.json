@@ -1,0 +1,9 @@
+{
+  "name": "gettodobyidfunction",
+  "version": "1.0.0",
+  "description": "Lambda function to retrieve a specific todo item by ID",
+  "main": "handler.js",
+  "dependencies": {
+    "aws-sdk": "^2.1235.0"
+  }
+}

@@ -64,6 +64,12 @@ architect:
     - Order operations → OrderService Lambda
     - Apply single-responsibility principle (5-10 routes per Lambda max)
     
+    ⚠️ CRITICAL: "Infrastructure vs Application" Rule
+    - IF you encounter scripts used for DB initialization, table creation, or one-time setup (e.g., init_dynamodb.py, create_tables.py):
+    - YOU ARE FORBIDDEN from creating Lambdas for them.
+    - REASON: In Serverless, infrastructure is managed by SAM/CloudFormation, not by application code.
+    - ACTION: Add these to "dropped_functions" with reason "Replaced by SAM Infrastructure as Code".
+    
     ⚠️ CRITICAL: "Drop, Don't Migrate" Rule for Auth
     - IF you recommend Cognito (Standard Auth), YOU ARE FORBIDDEN from creating Lambdas for:
       * Login / Register / Logout
@@ -131,10 +137,18 @@ architect:
     Common utilities (auth, db, logging) → Lambda Layers for code reuse
     
     ============================================================
-    PHASE 2: FRONTEND ARCHITECTURE DESIGN
+    PHASE 2: FRONTEND ARCHITECTURE DESIGN (OPTIONAL)
     ============================================================
     
-    **Step 2.1: Choose Frontend Hosting Strategy**
+    **Step 2.0: Check for Frontend Presence**
+    - Inspect `analysis_report.file_tags` for any keys containing "frontend", "client", "ui", "web".
+    - Or look for tags like "Frontend_API_Consumer", "Frontend_Config".
+    - **IF NO FRONTEND FILES FOUND**:
+      - Skip Step 2.1 and 2.2.
+      - Set `frontend_architecture: null` in the blueprint.
+      - Proceed to Phase 3.
+    
+    **Step 2.1: Choose Frontend Hosting Strategy (If frontend exists)**
     Analyze frontend requirements and recommend:
     
     - **AWS Amplify Hosting** (RECOMMENDED for modern apps):
@@ -151,7 +165,7 @@ architect:
       ✓ Custom caching policies
       Use when: Pure static site, no SSR, cost-sensitive
     
-    **Step 2.2: Identify Files to Migrate**
+    **Step 2.2: Identify Files to Migrate (If frontend exists)**
     For files tagged with Frontend_API_Consumer/Hardcoded_URL/Frontend_Config:
     
     1. List exact modifications needed:
@@ -175,6 +189,7 @@ architect:
     1. **The Drop, Don't Migrate Rule**:
        - Identify Auth routes (register, login, reset-pw).
        - ACTION: Remove them from Lambda list. Direct Frontend to use Cognito SDK.
+       - **NOTE**: If there is no frontend, these endpoints might need to remain as API endpoints (handled by Lambda calling Cognito), OR you can still use Cognito's built-in Hosted UI. Prefer Cognito infrastructure where possible.
 
     2. **Gateway Authorization Rule**:
        - Do NOT plan for "VerifyToken" middleware code inside Lambdas.
@@ -194,7 +209,7 @@ architect:
     - User pool attributes (email, phone, custom)
     - Password policy
     - Triggers needed (e.g., PostConfirmation for initializing data)
-    - Frontend integration approach (Amplify Auth vs custom)
+    - Frontend integration approach (Amplify Auth vs custom) - **Only if frontend exists**
     
     ============================================================
     PHASE 4: API GATEWAY & ROUTING DESIGN
@@ -205,7 +220,7 @@ architect:
     - **REST API**: Full features (request validation, SDK generation, usage plans)
     
     Configuration:
-    - CORS settings for frontend origin
+    - CORS settings for frontend origin (**If frontend exists**)
     - Stages (dev, staging, prod)
     - Throttling limits
     - API keys (if needed)
@@ -228,6 +243,7 @@ architect:
        - storage: S3 buckets for files/uploads (if needed)
     
     3. **frontend_architecture**:
+       - **Note**: Set to `null` if no frontend files found.
        - hosting_strategy: "amplify" or "s3_cloudfront"
        - files_to_migrate: Files requiring code changes
        - files_to_copy: Files with no changes
@@ -243,7 +259,7 @@ architect:
     5. **auth_architecture**:
        - strategy: Cognito / Lambda Authorizer / None
        - cognito_config: User pool settings
-       - frontend_changes: Auth integration steps
+       - frontend_changes: Auth integration steps (Only if frontend exists)
     
     6. **api_gateway**:
        - type: HTTP or REST
@@ -271,6 +287,9 @@ architect:
        - Replace message queue (RabbitMQ) → SQS
        - Replace Redis pub/sub → SNS
        - Replace file storage → S3
+    
+    5. **Be Flexible**:
+       - If the application has NO frontend (API only), do NOT invent one. Focus on a robust Backend and API Gateway.
     
     Focus on WHAT to build and WHICH services to use, not HOW to implement
     (that's Coding Agent's job).
@@ -340,16 +359,22 @@ code_developer:
     - Generate Amazon States Language definition
     
     ============================================================
-    PHASE 4: FRONTEND - CODE MIGRATION
+    PHASE 4: FRONTEND - CODE MIGRATION (OPTIONAL)
     ============================================================
+    **Condition**: Check `blueprint.frontend_architecture`. 
+    **IF NULL**: Skip this phase completely.
+    
     For EACH file in blueprint.frontend_architecture.files_to_migrate:
     - Read original code
     - Apply transformations (replace URLs, add env vars, Cognito auth)
     - Write to: output/frontend/src/{original_path}
     
     ============================================================
-    PHASE 5: FRONTEND - NEW CONFIGURATION FILES
+    PHASE 5: FRONTEND - NEW CONFIGURATION FILES (OPTIONAL)
     ============================================================
+    **Condition**: Check `blueprint.frontend_architecture`. 
+    **IF NULL**: Skip this phase completely.
+    
     Create:
     - output/frontend/.env.example (API_URL, Cognito IDs, Region)
     - output/frontend/src/aws-exports.js (Amplify config if needed)
@@ -358,7 +383,12 @@ code_developer:
     PHASE 6: DEPLOYMENT GUIDE
     ============================================================
     Create: output/README.md
-    Include: Structure overview, prerequisites, deployment steps, env vars guide
+    Include: 
+    - Structure overview
+    - Prerequisites
+    - Deployment steps (e.g., `sam build && sam deploy`)
+    - Env vars guide
+    - **Note**: If no frontend, clearly state this is a Backend API deployment.
     
     ============================================================
     CRITICAL RULES
@@ -419,7 +449,7 @@ sam_engineer:
     - data_architecture: DynamoDB tables, S3 buckets
     - auth_architecture: Cognito configuration
     - api_gateway: API type (REST/HTTP), CORS, stages
-    - frontend_architecture: Hosting strategy (Amplify/S3+CloudFront)
+    - frontend_architecture: Hosting strategy (Amplify/S3+CloudFront) -> **Optional: Check if exists**
     
     ============================================================
     PHASE 2: GENERATE MAIN SAM TEMPLATE
@@ -479,7 +509,7 @@ sam_engineer:
     **Step 5.3: Verify Best Practices**
     - All ARNs use !Ref or !GetAtt (no hardcoding)
     - IAM policies use SAM policy templates when possible
-    - All outputs needed by frontend are exported
+    - All outputs needed by frontend are exported (If frontend exists)
     - Sensitive values use AWS Secrets Manager or Parameter Store
     
     ============================================================

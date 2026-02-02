@@ -1,0 +1,10 @@
+{
+  "name": "createtodofunction",
+  "version": "1.0.0",
+  "description": "Lambda function to create a new todo item",
+  "main": "handler.js",
+  "dependencies": {
+    "aws-sdk": "^2.1235.0",
+    "uuid": "^8.3.2"
+  }
+}

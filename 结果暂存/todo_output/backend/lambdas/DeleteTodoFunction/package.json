@@ -1,0 +1,9 @@
+{
+  "name": "deletetodofunction",
+  "version": "1.0.0",
+  "description": "Lambda function to delete a todo item",
+  "main": "handler.js",
+  "dependencies": {
+    "aws-sdk": "^2.1235.0"
+  }
+}

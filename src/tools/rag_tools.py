@@ -33,6 +33,16 @@ class CodeRAGTool(BaseTool):
             api_key = os.getenv("OPENAI_API_KEY")
             model_name = os.getenv("OPENAI_MODEL_NAME", "gpt-3.5-turbo")
             
+            # Patch LlamaIndex to accept custom models (like deepseek-chat)
+            try:
+                from llama_index.llms.openai import utils as openai_utils
+                if model_name not in openai_utils.ALL_AVAILABLE_MODELS:
+                    openai_utils.ALL_AVAILABLE_MODELS.add(model_name)
+                if model_name not in openai_utils.CHAT_MODELS:
+                    openai_utils.CHAT_MODELS.add(model_name)
+            except Exception:
+                pass # Continue if patching fails
+
             Settings.llm = OpenAI(
                 model=model_name,
                 api_key=api_key,
