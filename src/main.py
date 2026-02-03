@@ -36,7 +36,8 @@ def build_agents() -> dict:
     sam_validate_tool = SAMValidateTool()
 
     # 初始化 Knowledge Sources
-    # 使用相对路径，假设运行目录在项目根目录
+    # TextFileKnowledgeSource 会自动在路径前添加 "knowledge/" 前缀
+    # 所以这里只需要写文件名即可
     sam_knowledge = TextFileKnowledgeSource(
         file_paths=["sam_reference.md"]
     )
@@ -61,6 +62,11 @@ def build_agents() -> dict:
         goal=code_cfg["goal"],
         backstory=code_cfg["backstory"],
         tools=[read_tool, rag_tool, write_tool],
+        knowledge_sources=[sam_knowledge],  # Explicitly allow access to SAM reference
+        embedder={
+            "provider": "ollama",
+            "config": {}
+        },
         verbose=True,
         allow_delegation=False,
     )

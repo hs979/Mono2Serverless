@@ -171,17 +171,56 @@ UsersTable:
     SourceArn: !Ref {TopicName}
 ```
 
-### EventBridge Rule Pattern
+### EventBridge Rule Patterns (Detailed)
+
+#### 1. Scheduled Rule (Cron/Rate)
 ```yaml
-{RuleName}:
+{RuleName}Scheduled:
   Type: AWS::Events::Rule
   Properties:
-    Name: !Sub ${Environment}-{rule-name}
-    ScheduleExpression: "rate(5 minutes)"  # or event pattern
+    Name: !Sub ${Environment}-{rule-name}-schedule
+    Description: Trigger Lambda every 5 minutes
+    ScheduleExpression: "rate(5 minutes)"  # or "cron(0 12 * * ? *)"
     State: ENABLED
     Targets:
       - Arn: !GetAtt TargetFunction.Arn
-        Id: Target1
+        Id: TargetFunctionV1
+```
+
+#### 2. S3 Event Rule (via CloudTrail) - Recommended for Complex Filtering
+**Prerequisite:** Ensure a CloudTrail exists that logs Data Events for the S3 bucket.
+
+```yaml
+{RuleName}S3Event:
+  Type: AWS::Events::Rule
+  Properties:
+    Name: !Sub ${Environment}-{rule-name}-s3-event
+    Description: Trigger on S3 PutObject with suffix filtering
+    State: ENABLED
+    EventPattern:
+      source:
+        - aws.s3
+      detail-type:
+        - "AWS API Call via CloudTrail"
+      detail:
+        eventSource:
+          - s3.amazonaws.com
+        eventName:
+          - PutObject
+          - CompleteMultipartUpload
+        requestParameters:
+          bucketName:
+            - !Ref BucketName
+          key:
+            # CRITICAL: Suffix/Prefix matching MUST be a list of objects
+            # Incorrect: suffix: ".md"
+            # Correct:   - suffix: ".md"
+            - suffix: ".md"
+            # OR for prefix:
+            # - prefix: "uploads/"
+    Targets:
+      - Arn: !GetAtt TargetFunction.Arn
+        Id: TargetFunctionV1
 
 {FunctionName}EventPermission:
   Type: AWS::Lambda::Permission
@@ -189,7 +228,27 @@ UsersTable:
     FunctionName: !Ref TargetFunction
     Action: lambda:InvokeFunction
     Principal: events.amazonaws.com
-    SourceArn: !GetAtt {RuleName}.Arn
+    SourceArn: !GetAtt {RuleName}S3Event.Arn
+```
+
+#### 3. Standard Pattern Matching Rules
+Use when matching exact values or multiple possible values.
+
+```yaml
+{RuleName}Pattern:
+  Type: AWS::Events::Rule
+  Properties:
+    EventPattern:
+      source:
+        - "my.custom.app"
+      detail-type:
+        - "OrderPlaced"
+      detail:
+        status: 
+          - "created"   # Matches exact string
+          - "pending"   # OR matches "pending"
+        amount:
+          - numeric: [">", 100]  # Numeric matching
 ```
 
 ### S3 Bucket Pattern

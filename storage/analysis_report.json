@@ -1,0 +1,487 @@
+{
+  "project_structure": "monolith-app/\n├── backend\n│   ├── app.py\n│   ├── auth.py\n│   ├── db.py\n│   ├── init_dynamodb.py\n│   ├── load_products.py\n│   ├── models.py\n│   ├── product_list.json\n│   └── requirements.txt\n└── frontend\n    ├── babel.config.js\n    ├── Makefile\n    ├── package-lock.json\n    ├── package.json\n    ├── public\n    │   ├── favicon.ico\n    │   └── index.html\n    ├── scripts\n    │   └── fetchconfig.js\n    ├── src\n    │   ├── App.vue\n    │   ├── aws-exports.js\n    │   ├── backend\n    │   │   └── api.js\n    │   ├── components\n    │   │   ├── CartButton.vue\n    │   │   ├── CartDrawer.vue\n    │   │   ├── CartQuantityEditor.vue\n    │   │   ├── LoadingOverlay.vue\n    │   │   └── Product.vue\n    │   ├── main.js\n    │   ├── plugins\n    │   │   └── vuetify.js\n    │   ├── router.js\n    │   ├── store\n    │   │   ├── actions.js\n    │   │   ├── getters.js\n    │   │   ├── mutations.js\n    │   │   └── store.js\n    │   └── views\n    │       ├── Auth.vue\n    │       ├── Home.vue\n    │       └── Payment.vue\n    ├── vue.config.js\n    └── yarn.lock",
+  "entry_points": [
+    {
+      "file": "backend/app.py",
+      "method": "POST",
+      "path": "/auth/register"
+    },
+    {
+      "file": "backend/app.py",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    {
+      "file": "backend/app.py",
+      "method": "GET",
+      "path": "/product"
+    },
+    {
+      "file": "backend/app.py",
+      "method": "GET",
+      "path": "/product/<product_id>"
+    },
+    {
+      "file": "backend/app.py",
+      "method": "GET",
+      "path": "/cart"
+    },
+    {
+      "file": "backend/app.py",
+      "method": "POST",
+      "path": "/cart"
+    },
+    {
+      "file": "backend/app.py",
+      "method": "PUT",
+      "path": "/cart/<product_id>"
+    },
+    {
+      "file": "backend/app.py",
+      "method": "POST",
+      "path": "/cart/migrate"
+    },
+    {
+      "file": "backend/app.py",
+      "method": "POST",
+      "path": "/cart/checkout"
+    },
+    {
+      "file": "backend/app.py",
+      "method": "GET",
+      "path": "/cart/<product_id>/total"
+    },
+    {
+      "file": "backend/app.py",
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "file": "backend/app.py",
+      "method": "GET",
+      "path": "/<path:path>"
+    }
+  ],
+  "dependency_graph": {
+    "backend/app.py": [
+      "auth",
+      "datetime",
+      "db",
+      "flask",
+      "flask_cors",
+      "functools",
+      "init_dynamodb",
+      "json",
+      "models",
+      "os",
+      "uuid"
+    ],
+    "backend/auth.py": [
+      "datetime",
+      "jwt",
+      "os",
+      "werkzeug.security"
+    ],
+    "backend/db.py": [
+      "boto3",
+      "flask",
+      "os"
+    ],
+    "backend/init_dynamodb.py": [
+      "boto3",
+      "botocore.exceptions",
+      "os",
+      "sys"
+    ],
+    "backend/load_products.py": [
+      "datetime",
+      "db",
+      "json",
+      "os",
+      "traceback"
+    ],
+    "backend/models.py": [
+      "auth",
+      "boto3.dynamodb.conditions",
+      "botocore.exceptions",
+      "datetime",
+      "db",
+      "decimal",
+      "json",
+      "uuid"
+    ],
+    "frontend/babel.config.js": [],
+    "frontend/vue.config.js": [],
+    "frontend/scripts/fetchconfig.js": [],
+    "frontend/src/App.vue": [],
+    "frontend/src/aws-exports.js": [],
+    "frontend/src/main.js": [],
+    "frontend/src/router.js": [],
+    "frontend/src/backend/api.js": [],
+    "frontend/src/components/CartButton.vue": [],
+    "frontend/src/components/CartDrawer.vue": [],
+    "frontend/src/components/CartQuantityEditor.vue": [],
+    "frontend/src/components/LoadingOverlay.vue": [],
+    "frontend/src/components/Product.vue": [],
+    "frontend/src/plugins/vuetify.js": [],
+    "frontend/src/store/actions.js": [],
+    "frontend/src/store/getters.js": [],
+    "frontend/src/store/mutations.js": [],
+    "frontend/src/store/store.js": [],
+    "frontend/src/views/Auth.vue": [],
+    "frontend/src/views/Home.vue": [],
+    "frontend/src/views/Payment.vue": []
+  },
+  "file_tags": {
+    "backend/app.py": [
+      "Auth",
+      "DynamoDB"
+    ],
+    "backend/auth.py": [
+      "Auth"
+    ],
+    "backend/db.py": [
+      "AWS_SDK",
+      "DynamoDB"
+    ],
+    "backend/init_dynamodb.py": [
+      "AWS_SDK",
+      "DynamoDB"
+    ],
+    "backend/load_products.py": [
+      "DynamoDB"
+    ],
+    "backend/models.py": [
+      "AWS_SDK",
+      "DynamoDB"
+    ],
+    "frontend/babel.config.js": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/vue.config.js": [
+      "Hardcoded_URL"
+    ],
+    "frontend/scripts/fetchconfig.js": [
+      "Frontend_Config"
+    ],
+    "frontend/src/App.vue": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/src/aws-exports.js": [
+      "Frontend_Config"
+    ],
+    "frontend/src/main.js": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/src/router.js": [
+      "Frontend_Auth_Integration"
+    ],
+    "frontend/src/backend/api.js": [
+      "Frontend_Config"
+    ],
+    "frontend/src/components/CartButton.vue": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/src/components/CartDrawer.vue": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/src/components/CartQuantityEditor.vue": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/src/components/LoadingOverlay.vue": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/src/components/Product.vue": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/src/plugins/vuetify.js": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/src/store/actions.js": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/src/store/getters.js": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/src/store/mutations.js": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/src/store/store.js": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/src/views/Auth.vue": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/src/views/Home.vue": [
+      "Frontend_UI_Component"
+    ],
+    "frontend/src/views/Payment.vue": [
+      "Frontend_UI_Component"
+    ]
+  },
+  "symbol_table": [
+    {
+      "id": "backend.app.get_cart_id_from_cookie",
+      "file_path": "backend/app.py",
+      "start_line": 52,
+      "end_line": 59
+    },
+    {
+      "id": "backend.app.set_cart_cookie",
+      "file_path": "backend/app.py",
+      "start_line": 62,
+      "end_line": 73
+    },
+    {
+      "id": "backend.app.login_required",
+      "file_path": "backend/app.py",
+      "start_line": 76,
+      "end_line": 95
+    },
+    {
+      "id": "backend.app.decorated_function",
+      "file_path": "backend/app.py",
+      "start_line": 79,
+      "end_line": 93
+    },
+    {
+      "id": "backend.app.get_user_identifier",
+      "file_path": "backend/app.py",
+      "start_line": 98,
+      "end_line": 110
+    },
+    {
+      "id": "backend.app.register",
+      "file_path": "backend/app.py",
+      "start_line": 116,
+      "end_line": 136
+    },
+    {
+      "id": "backend.app.login",
+      "file_path": "backend/app.py",
+      "start_line": 140,
+      "end_line": 162
+    },
+    {
+      "id": "backend.app.get_products",
+      "file_path": "backend/app.py",
+      "start_line": 168,
+      "end_line": 170
+    },
+    {
+      "id": "backend.app.get_product",
+      "file_path": "backend/app.py",
+      "start_line": 174,
+      "end_line": 181
+    },
+    {
+      "id": "backend.app.list_cart",
+      "file_path": "backend/app.py",
+      "start_line": 187,
+      "end_line": 205
+    },
+    {
+      "id": "backend.app.add_to_cart",
+      "file_path": "backend/app.py",
+      "start_line": 209,
+      "end_line": 248
+    },
+    {
+      "id": "backend.app.update_cart",
+      "file_path": "backend/app.py",
+      "start_line": 252,
+      "end_line": 305
+    },
+    {
+      "id": "backend.app.migrate_cart",
+      "file_path": "backend/app.py",
+      "start_line": 310,
+      "end_line": 334
+    },
+    {
+      "id": "backend.app.checkout_cart",
+      "file_path": "backend/app.py",
+      "start_line": 339,
+      "end_line": 365
+    },
+    {
+      "id": "backend.app.get_cart_total",
+      "file_path": "backend/app.py",
+      "start_line": 369,
+      "end_line": 379
+    },
+    {
+      "id": "backend.app.serve_frontend",
+      "file_path": "backend/app.py",
+      "start_line": 386,
+      "end_line": 406
+    },
+    {
+      "id": "backend.app.internal_error",
+      "file_path": "backend/app.py",
+      "start_line": 412,
+      "end_line": 414
+    },
+    {
+      "id": "backend.auth.create_token",
+      "file_path": "backend/auth.py",
+      "start_line": 17,
+      "end_line": 36
+    },
+    {
+      "id": "backend.auth.verify_token",
+      "file_path": "backend/auth.py",
+      "start_line": 39,
+      "end_line": 59
+    },
+    {
+      "id": "backend.auth.hash_password",
+      "file_path": "backend/auth.py",
+      "start_line": 62,
+      "end_line": 72
+    },
+    {
+      "id": "backend.auth.verify_password",
+      "file_path": "backend/auth.py",
+      "start_line": 75,
+      "end_line": 86
+    },
+    {
+      "id": "backend.db.get_dynamodb_client",
+      "file_path": "backend/db.py",
+      "start_line": 15,
+      "end_line": 23
+    },
+    {
+      "id": "backend.db.get_dynamodb_resource",
+      "file_path": "backend/db.py",
+      "start_line": 26,
+      "end_line": 34
+    },
+    {
+      "id": "backend.db.get_table",
+      "file_path": "backend/db.py",
+      "start_line": 37,
+      "end_line": 40
+    },
+    {
+      "id": "backend.db.close_connection",
+      "file_path": "backend/db.py",
+      "start_line": 43,
+      "end_line": 47
+    },
+    {
+      "id": "backend.init_dynamodb.get_dynamodb_resource",
+      "file_path": "backend/init_dynamodb.py",
+      "start_line": 19,
+      "end_line": 24
+    },
+    {
+      "id": "backend.init_dynamodb.init_dynamodb",
+      "file_path": "backend/init_dynamodb.py",
+      "start_line": 27,
+      "end_line": 104
+    },
+    {
+      "id": "backend.init_dynamodb.main",
+      "file_path": "backend/init_dynamodb.py",
+      "start_line": 107,
+      "end_line": 137
+    },
+    {
+      "id": "backend.load_products.load_products_to_dynamodb",
+      "file_path": "backend/load_products.py",
+      "start_line": 13,
+      "end_line": 52
+    },
+    {
+      "id": "backend.models._python_obj_to_dynamodb",
+      "file_path": "backend/models.py",
+      "start_line": 19,
+      "end_line": 31
+    },
+    {
+      "id": "backend.models._dynamodb_to_python_obj",
+      "file_path": "backend/models.py",
+      "start_line": 34,
+      "end_line": 50
+    },
+    {
+      "id": "backend.models.create_user",
+      "file_path": "backend/models.py",
+      "start_line": 55,
+      "end_line": 93
+    },
+    {
+      "id": "backend.models.get_user_by_username",
+      "file_path": "backend/models.py",
+      "start_line": 96,
+      "end_line": 121
+    },
+    {
+      "id": "backend.models.get_user_by_id",
+      "file_path": "backend/models.py",
+      "start_line": 124,
+      "end_line": 148
+    },
+    {
+      "id": "backend.models.get_cart_items",
+      "file_path": "backend/models.py",
+      "start_line": 153,
+      "end_line": 205
+    },
+    {
+      "id": "backend.models.add_cart_item",
+      "file_path": "backend/models.py",
+      "start_line": 208,
+      "end_line": 249
+    },
+    {
+      "id": "backend.models.update_cart_item_quantity",
+      "file_path": "backend/models.py",
+      "start_line": 252,
+      "end_line": 290
+    },
+    {
+      "id": "backend.models.delete_cart_items",
+      "file_path": "backend/models.py",
+      "start_line": 293,
+      "end_line": 319
+    },
+    {
+      "id": "backend.models.migrate_cart_items",
+      "file_path": "backend/models.py",
+      "start_line": 322,
+      "end_line": 405
+    },
+    {
+      "id": "backend.models.get_product_total_quantity",
+      "file_path": "backend/models.py",
+      "start_line": 410,
+      "end_line": 436
+    },
+    {
+      "id": "backend.models.update_product_total_quantity",
+      "file_path": "backend/models.py",
+      "start_line": 439,
+      "end_line": 488
+    },
+    {
+      "id": "backend.models.cleanup_expired_items",
+      "file_path": "backend/models.py",
+      "start_line": 493,
+      "end_line": 521
+    }
+  ],
+  "dynamodb_info": {
+    "used": true,
+    "probable_tables": [
+      "shopping-cart-monolith"
+    ],
+    "schema_files": [
+      "backend/init_dynamodb.py",
+      "backend/app.py",
+      "backend/db.py"
+    ]
+  }
+}

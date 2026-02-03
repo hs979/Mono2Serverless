@@ -1,0 +1,202 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: File Processing Serverless Application
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: python3.12
+    MemorySize: 128
+    Environment:
+      Variables:
+        AWS_REGION: !Ref AWS::Region
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+
+Resources:
+  CommonUtilitiesLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub "${Environment}-CommonUtilitiesLayer"
+      Description: Contains common dependencies: boto3, markdown, etc.
+      ContentUri: backend/layers/CommonUtilitiesLayer/
+      CompatibleRuntimes:
+        - python3.12
+      RetentionPolicy: Retain
+
+  ConvertToHtmlLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${Environment}-ConvertToHtmlLambda"
+      Description: Converts markdown content to HTML
+      CodeUri: backend/lambdas/ConvertToHtmlLambda/
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      MemorySize: 128
+      Timeout: 30
+      Layers:
+        - !Ref CommonUtilitiesLayer
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /process
+            Method: POST
+            RestApiId: !Ref FileProcessingApi
+      Environment:
+        Variables:
+          AWS_REGION: !Ref AWS::Region
+
+  AnalyzeSentimentLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${Environment}-AnalyzeSentimentLambda"
+      Description: Analyzes sentiment of text content
+      CodeUri: backend/lambdas/AnalyzeSentimentLambda/
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      MemorySize: 256
+      Timeout: 60
+      Layers:
+        - !Ref CommonUtilitiesLayer
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /analyze
+            Method: POST
+            RestApiId: !Ref FileProcessingApi
+      Environment:
+        Variables:
+          AWS_REGION: !Ref AWS::Region
+
+  SaveSentimentLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${Environment}-SaveSentimentLambda"
+      Description: Saves sentiment analysis results to DynamoDB
+      CodeUri: backend/lambdas/SaveSentimentLambda/
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      MemorySize: 128
+      Timeout: 30
+      Layers:
+        - !Ref CommonUtilitiesLayer
+      Environment:
+        Variables:
+          AWS_REGION: !Ref AWS::Region
+          SENTIMENT_TABLE: !Ref SentimentTable
+
+  SentimentTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${Environment}-ref-arch-fileprocessing-sentiment"
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: N
+        - AttributeName: sentiment_label
+          AttributeType: S
+        - AttributeName: sentiment_score
+          AttributeType: N
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: SentimentScoreIndex
+          KeySchema:
+            - AttributeName: sentiment_label
+              KeyType: HASH
+            - AttributeName: sentiment_score
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  FileProcessingApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "${Environment}-FileProcessingAPI"
+      StageName: !Ref Environment
+      DefinitionBody:
+        openapi: 3.0.1
+        info:
+          title: FileProcessingAPI
+          description: API for file processing and sentiment analysis
+        paths:
+          /process:
+            post:
+              summary: Convert markdown to HTML
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConvertToHtmlLambda.Arn}/invocations"
+          /analyze:
+            post:
+              summary: Analyze sentiment of text
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AnalyzeSentimentLambda.Arn}/invocations"
+
+  FileProcessingWorkflow:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: backend/statemachines/FileProcessingWorkflow.asl.json
+      DefinitionSubstitutions:
+        ConvertToHtmlLambdaArn: !GetAtt ConvertToHtmlLambda.Arn
+        AnalyzeSentimentLambdaArn: !GetAtt AnalyzeSentimentLambda.Arn
+        SaveSentimentLambdaArn: !GetAtt SaveSentimentLambda.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ConvertToHtmlLambda
+        - LambdaInvokePolicy:
+            FunctionName: !Ref AnalyzeSentimentLambda
+        - LambdaInvokePolicy:
+            FunctionName: !Ref SaveSentimentLambda
+        - DynamoDBWritePolicy:
+            TableName: !Ref SentimentTable
+      Events:
+        S3Trigger:
+          Type: S3
+          Properties:
+            Bucket: !Ref SourceBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .md
+
+  SourceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${Environment}-file-processing-source-bucket"
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${FileProcessingApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+  SentimentTableName:
+    Description: DynamoDB table name for sentiment results
+    Value: !Ref SentimentTable
+  SourceBucketName:
+    Description: S3 bucket for source files
+    Value: !Ref SourceBucket
+  FileProcessingWorkflowArn:
+    Description: Step Functions state machine ARN
+    Value: !Ref FileProcessingWorkflow
