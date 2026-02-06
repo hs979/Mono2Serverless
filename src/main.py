@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import os
+import time
 from dotenv import load_dotenv
 
 from crewai import Agent, Task, Crew
@@ -9,6 +10,14 @@ from crewai.knowledge.source.text_file_knowledge_source import TextFileKnowledge
 from src.tools.file_tools import ReadFileTool, WriteFileTool, FileListTool
 from src.tools.rag_tools import CodeRAGTool
 from src.tools.sam_validate_tool import SAMValidateTool
+from src.utils import (
+    init_monitor,
+    get_monitor,
+    init_llm_callback,
+    setup_litellm_callback,
+    create_monitored_tool,
+    patch_crewai_all
+)
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -46,22 +55,31 @@ def build_agents() -> dict:
 
     # 1. Architect - 架构设计师
     arch_cfg = config["architect"]
+    # 为 Architect 工具添加监控
+    arch_read = create_monitored_tool(ReadFileTool(ROOT_DIR), "architect")
+    arch_write = create_monitored_tool(WriteFileTool(ROOT_DIR), "architect")
+    
     agents["architect"] = Agent(
         role=arch_cfg["role"],
         goal=arch_cfg["goal"],
         backstory=arch_cfg["backstory"],
-        tools=[read_tool, write_tool],  # 需要write来输出blueprint.json
+        tools=[arch_read, arch_write],  # 需要write来输出blueprint.json
         verbose=True,
         allow_delegation=False,
     )
 
     # 2. Code Developer - 完整应用开发者
     code_cfg = config["code_developer"]
+    # 为 Code Developer 工具添加监控
+    code_read = create_monitored_tool(ReadFileTool(ROOT_DIR), "code_developer")
+    code_rag = create_monitored_tool(CodeRAGTool(ROOT_DIR / "storage" / "code_index"), "code_developer")
+    code_write = create_monitored_tool(WriteFileTool(ROOT_DIR), "code_developer")
+    
     agents["code_developer"] = Agent(
         role=code_cfg["role"],
         goal=code_cfg["goal"],
         backstory=code_cfg["backstory"],
-        tools=[read_tool, rag_tool, write_tool],
+        tools=[code_read, code_rag, code_write],
         knowledge_sources=[sam_knowledge],  # Explicitly allow access to SAM reference
         embedder={
             "provider": "ollama",
@@ -73,11 +91,17 @@ def build_agents() -> dict:
 
     # 3. SAM Engineer - SAM模板专家（替代原来的infra_engineer）
     sam_cfg = config["sam_engineer"]
+    # 为 SAM Engineer 工具添加监控
+    sam_read = create_monitored_tool(ReadFileTool(ROOT_DIR), "sam_engineer")
+    sam_write = create_monitored_tool(WriteFileTool(ROOT_DIR), "sam_engineer")
+    sam_list = create_monitored_tool(FileListTool(ROOT_DIR), "sam_engineer")
+    sam_validate = create_monitored_tool(SAMValidateTool(), "sam_engineer")
+    
     agents["sam_engineer"] = Agent(
         role=sam_cfg["role"],
         goal=sam_cfg["goal"],
         backstory=sam_cfg["backstory"],
-        tools=[read_tool, write_tool, file_list_tool, sam_validate_tool],
+        tools=[sam_read, sam_write, sam_list, sam_validate],
         knowledge_sources=[sam_knowledge],
         embedder={
             "provider": "ollama",
@@ -128,6 +152,20 @@ def run_crew() -> None:
     print("MAG System - Monolith to AWS Serverless Migration")
     print("=" * 60)
     
+    # 初始化性能监控
+    log_dir = ROOT_DIR / "storage" / "performance_logs"
+    monitor = init_monitor(log_dir)
+    
+    # 初始化 LLM 回调监控（备用方案）
+    init_llm_callback()
+    setup_litellm_callback()
+    
+    # Patch CrewAI 以监控 LLM 调用、Agent 和 Task 执行
+    patch_crewai_all()
+    
+    # 记录总开始时间
+    workflow_start = time.time()
+    
     agents = build_agents()
     tasks = build_tasks(agents)
 
@@ -144,11 +182,50 @@ def run_crew() -> None:
         verbose=True,
     )
     
+    # 记录每个 task 的执行时间
+    task_results = []
+    for i, task in enumerate(tasks):
+        task_start = time.time()
+        print(f"\n{'='*60}")
+        print(f"开始执行 Task {i+1}/{len(tasks)}")
+        print(f"{'='*60}\n")
+        
+        # 这里无法单独执行task，所以我们需要在crew.kickoff后处理
+        # 先记录一个标记
+        task_results.append({
+            "index": i,
+            "agent": task.agent.role if task.agent else "unknown",
+            "start": task_start
+        })
+    
+    # 执行 crew（这会执行所有tasks）
+    crew_start = time.time()
     result = crew.kickoff()
+    crew_end = time.time()
+    
+    # 由于 CrewAI 会顺序执行所有 tasks，我们需要从输出中推断每个 task 的时间
+    # 这里我们记录整体的 crew 执行时间
+    crew_duration = crew_end - crew_start
+    print(f"\n⏱️  Crew 总执行时间: {crew_duration:.2f}秒 ({crew_duration/60:.2f}分钟)")
+    
+    # 尝试从 result 中提取 task 信息
+    if hasattr(result, 'tasks_output') and result.tasks_output:
+        for i, task_output in enumerate(result.tasks_output):
+            if i < len(tasks):
+                # 记录task完成（时间是估算的）
+                task_name = f"Task_{i+1}"
+                agent_name = tasks[i].agent.role if tasks[i].agent else "unknown"
+                
+                # 由于无法获取准确的单个task时间，这里不记录
+                # monitor.record_task(task_name, agent_name, 0, 0)
+
+    workflow_end = time.time()
+    workflow_duration = workflow_end - workflow_start
 
     print("\n" + "=" * 60)
     print("Migration workflow completed!")
     print("=" * 60)
+    print(f"⏱️  工作流总时间: {workflow_duration:.2f}秒 ({workflow_duration/60:.2f}分钟)")
     print("\nResult:")
     print(json.dumps({"result": str(result)}, indent=2, ensure_ascii=False))
     
@@ -161,6 +238,13 @@ def run_crew() -> None:
     print("  1. Review the generated code in output/")
     print("  2. Configure deployment parameters")
     print("  3. Run: sam build && sam deploy --guided")
+    
+    # 保存性能报告
+    print("\n" + "=" * 60)
+    print("生成性能分析报告...")
+    print("=" * 60)
+    monitor.save_report()
+    monitor.print_summary()
 
 
 if __name__ == "__main__":

@@ -45,56 +45,17 @@ def extract_code_chunk(source: str, start_line: int, end_line: int) -> str:
     return "\n".join(chunk_lines)
 
 
-def should_index_frontend_file(rel_path: str, file_tags: Dict[str, List[str]]) -> bool:
-    """
-    判断前端文件是否需要索引
-    策略：
-    1. 如果在 file_tags 中有记录，且包含 API/Config/Auth 相关标签 -> 索引
-    2. 如果没有特殊标签（即纯 UI 组件） -> 不索引
-    """
-    # 转换为正斜杠路径以匹配 JSON 里的 key
-    normalized_path = rel_path.replace("\\", "/")
-    
-    tags = file_tags.get(normalized_path, [])
-    
-    # 必须索引的关键特征（已更新标签：Frontend_Router → Frontend_Auth_Integration）
-    critical_traits = {
-        "Frontend_API_Consumer", 
-        "Frontend_Config", 
-        "Hardcoded_URL",
-        "Frontend_Auth_Integration",  # 原 Frontend_Router，更准确反映认证逻辑
-        # "Frontend_GraphQL",           # GraphQL 相关
-        # "Frontend_Amplify_Init",      # Amplify 初始化
-        # "AWS_Amplify",
-        # "Auth"
-    }
-    
-    # 只要包含任何一个关键特征，就需要索引
-    if any(trait in tags for trait in critical_traits):
-        return True
-        
-    # 如果明确标记为纯 UI 组件，或者是前端文件但没有任何关键特征，则不索引
-    # 这里的逻辑是：只关注那些Agent需要修改逻辑的文件
-    return False
-
-
 def build_documents(monolith_root: Path, analysis_report: Dict[str, Any]) -> List[Document]:
     """
     遍历源代码，按策略构建文档：
     
     策略：
-    1. 前端文件（.js/.ts/.jsx/.tsx/.vue in frontend/client/ui/web/public）：
-       - 过滤：只索引有关键特征的文件（API/Config/Auth），跳过纯 UI 组件
-       - 索引方式：整文件索引
-       - Metadata：无（空对象）
-    
-    2. 后端文件（Python/Node.js）：
-       - 索引方式：按函数/类分片（从 symbol_table 读取）
-       - Metadata：包含 file_path, function_name, symbol_id, type, start_line, end_line
-       - 特殊情况：没有符号的后端文件（配置文件）整文件索引，但保留 metadata
+    - 所有代码文件统一按后端文件处理
+    - 索引方式：按函数/类分片（从 symbol_table 读取）
+    - Metadata：包含 file_path, function_name, symbol_id, type, start_line, end_line
+    - 特殊情况：没有符号的文件（配置文件等）整文件索引，但保留 metadata
     """
     docs: List[Document] = []
-    file_tags = analysis_report.get("file_tags", {})
     symbol_table = analysis_report.get("symbol_table", [])
     
     # 构建 file_path -> symbols 的映射
@@ -107,7 +68,6 @@ def build_documents(monolith_root: Path, analysis_report: Dict[str, Any]) -> Lis
     
     # 扩展支持的文件类型
     allowed_ext = {".py", ".js", ".ts", ".jsx", ".tsx", ".vue"}
-    frontend_ext = {".js", ".ts", ".jsx", ".tsx", ".vue"}
     
     print(f"Scanning files in {monolith_root}...")
     print(f"Symbol table contains {len(symbol_table)} symbols across {len(file_symbols)} files")
@@ -115,10 +75,8 @@ def build_documents(monolith_root: Path, analysis_report: Dict[str, Any]) -> Lis
     # 统计信息
     stats = {
         "total_files": 0,
-        "backend_chunked_files": 0,
-        "backend_whole_files": 0,
-        "frontend_whole_files": 0,
-        "skipped_files": 0,
+        "chunked_files": 0,
+        "whole_files": 0,
         "total_chunks": 0
     }
     
@@ -136,16 +94,6 @@ def build_documents(monolith_root: Path, analysis_report: Dict[str, Any]) -> Lis
             rel_path = file_path.relative_to(monolith_root).as_posix()
             stats["total_files"] += 1
             
-            # 判断是否为前端文件
-            is_frontend = any(part in {'frontend', 'client', 'ui', 'web', 'public'} for part in file_path.parts)
-            
-            # 前端文件过滤逻辑
-            if is_frontend and ext in frontend_ext:
-                if not should_index_frontend_file(rel_path, file_tags):
-                    # 跳过不需要修改的纯前端文件
-                    stats["skipped_files"] += 1
-                    continue
-            
             try:
                 with file_path.open("r", encoding="utf-8", errors="ignore") as f:
                     source = f.read()
@@ -153,67 +101,54 @@ def build_documents(monolith_root: Path, analysis_report: Dict[str, Any]) -> Lis
                 print(f"Error reading {file_path}: {e}")
                 continue
 
-            # 策略分叉：前端和后端分开处理
-            if is_frontend and ext in frontend_ext:
-                # === 前端文件：整文件索引，无 metadata ===
-                docs.append(Document(
-                    text=source,
-                    metadata={}  # 前端文件不附带 metadata
-                ))
-                stats["frontend_whole_files"] += 1
-            else:
-                # === 后端文件：按函数/类分片（使用 symbol_table），附带 metadata ===
-                if rel_path in file_symbols and file_symbols[rel_path]:
-                    # 有符号定义，按函数/类分片
-                    for symbol in file_symbols[rel_path]:
-                        chunk_text = extract_code_chunk(
-                            source, 
-                            symbol["start_line"], 
-                            symbol["end_line"]
-                        )
-                        
-                        # 从 symbol id 提取函数名（格式：module.ClassName.method_name 或 module.function_name）
-                        symbol_id = symbol["id"]
-                        function_name = symbol_id.split(".")[-1]  # 取最后一部分作为函数名
-                        
-                        docs.append(Document(
-                            text=chunk_text,
-                            metadata={
-                                "file_path": rel_path,
-                                "function_name": function_name,
-                                "symbol_id": symbol_id,
-                                "type": symbol.get("kind", "function"),  # Python 没有 kind，默认 function
-                                "start_line": symbol["start_line"],
-                                "end_line": symbol["end_line"]
-                            }
-                        ))
-                        stats["total_chunks"] += 1
+            # 统一处理：按函数/类分片（使用 symbol_table），附带 metadata
+            if rel_path in file_symbols and file_symbols[rel_path]:
+                # 有符号定义，按函数/类分片
+                for symbol in file_symbols[rel_path]:
+                    chunk_text = extract_code_chunk(
+                        source, 
+                        symbol["start_line"], 
+                        symbol["end_line"]
+                    )
                     
-                    stats["backend_chunked_files"] += 1
-                else:
-                    # 后端文件但没有符号定义，整文件索引（配置文件、简单脚本等）
+                    # 从 symbol id 提取函数名（格式：module.ClassName.method_name 或 module.function_name）
+                    symbol_id = symbol["id"]
+                    function_name = symbol_id.split(".")[-1]  # 取最后一部分作为函数名
+                    
                     docs.append(Document(
-                        text=source,
+                        text=chunk_text,
                         metadata={
                             "file_path": rel_path,
-                            "function_name": "whole_file",
-                            "type": "file",
-                            "start_line": 1,
-                            "end_line": len(source.splitlines())
+                            "function_name": function_name,
+                            "symbol_id": symbol_id,
+                            "type": symbol.get("kind", "function"),  # Python 没有 kind，默认 function
+                            "start_line": symbol["start_line"],
+                            "end_line": symbol["end_line"]
                         }
                     ))
-                    stats["backend_whole_files"] += 1
+                    stats["total_chunks"] += 1
+                
+                stats["chunked_files"] += 1
+            else:
+                # 没有符号定义，整文件索引（配置文件、简单脚本等）
+                docs.append(Document(
+                    text=source,
+                    metadata={
+                        "file_path": rel_path,
+                        "function_name": "whole_file",
+                        "type": "file",
+                        "start_line": 1,
+                        "end_line": len(source.splitlines())
+                    }
+                ))
+                stats["whole_files"] += 1
     
     # 打印统计信息
     print(f"\n=== Indexing Statistics ===")
     print(f"Total files scanned: {stats['total_files']}")
-    print(f"\nBackend files:")
-    print(f"  - Chunked (with metadata): {stats['backend_chunked_files']} ({stats['total_chunks']} chunks)")
-    print(f"  - Whole file (with metadata): {stats['backend_whole_files']}")
-    print(f"\nFrontend files:")
-    print(f"  - Whole file (no metadata): {stats['frontend_whole_files']}")
-    print(f"  - Skipped (pure UI): {stats['skipped_files']}")
-    print(f"\nTotal documents: {len(docs)}")
+    print(f"  - Chunked (function/class level): {stats['chunked_files']} files ({stats['total_chunks']} chunks)")
+    print(f"  - Whole file (config/simple scripts): {stats['whole_files']} files")
+    print(f"\nTotal documents indexed: {len(docs)}")
     print(f"===========================\n")
     
     return docs

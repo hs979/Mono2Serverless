@@ -37,8 +37,6 @@ IGNORE_DIRS = {
     'coverage'
 }
 
-# 前端代码文件扩展名
-FRONTEND_EXTENSIONS = {'.js', '.ts', '.jsx', '.tsx', '.vue'}
 
 def build_project_structure(root: Path) -> str:
     lines: List[str] = []
@@ -62,92 +60,10 @@ def build_project_structure(root: Path) -> str:
     return "\n".join(lines)
 
 
-def detect_frontend_characteristics(source: str, file_path: str) -> List[str]:
-    """
-    检测前端文件特征，判断是否需要修改
-    """
-    traits = []
-    filename = Path(file_path).name.lower()
-    
-    # 0. 文件名模式检测 - 配置文件优先识别
-    if filename in {'config.js', 'config.ts', 'settings.js', 'constants.js', 'env.js'}:
-        traits.append("Frontend_Config")
-    
-    # 1. API 调用检测
-    # axios.get, axios.post, fetch(...)
-    # $http.get (AngularJS/Vue legacy)
-    if re.search(r'\b(axios|fetch|\$http)\.(get|post|put|delete|patch|request)\b', source, re.IGNORECASE):
-        traits.append("Frontend_API_Consumer")
-    elif re.search(r'\bfetch\s*\(', source):
-        traits.append("Frontend_API_Consumer")
-    # AWS Amplify API 检测
-    elif re.search(r'\bAPI\.(get|post|put|delete|patch|graphql)\b', source):
-        traits.append("Frontend_API_Consumer")
-    
-    # 检测从 aws-amplify 导入 API
-    if re.search(r'from [\'"]aws-amplify[\'"]', source) or \
-       re.search(r'import .+ from [\'"]aws-amplify', source):
-        if re.search(r'\bAPI\b', source):
-            if "Frontend_API_Consumer" not in traits:
-                traits.append("Frontend_API_Consumer")
-    
-    # 2. 硬编码路径/URL 检测
-    # 匹配 '/api/...' 或 'http://localhost' 或 'http://127.0.0.1'
-    if re.search(r"['\"]/api/[^'\"]*['\"]", source) or \
-       re.search(r"['\"]https?://(localhost|127\.0\.0\.1)[^'\"]*['\"]", source):
-        traits.append("Hardcoded_URL")
-        # 不再自动添加 Frontend_API_Consumer
-
-    # 3. 敏感配置/认证检测
-    # Amplify, aws-exports, process.env.VUE_APP_API_URL 等
-    if re.search(r'\b(Amplify|Auth)\.configure\b', source) or \
-       "aws-exports" in source or \
-       re.search(r'\bprocess\.env\.', source):
-        if "Frontend_Config" not in traits:
-            traits.append("Frontend_Config")
-    
-    # 配置对象检测
-    if re.search(r'(?:const|let|var)\s+\w*config\w*\s*=\s*\{', source, re.IGNORECASE):
-        if "Frontend_Config" not in traits:
-            traits.append("Frontend_Config")
-
-    # 4. 认证集成检测（router 中的认证逻辑）
-    # 只标记包含认证相关代码的路由文件，纯路由定义不打标签
-    if "router" in filename or re.search(r'\b(Router|Switch|Route)\b', source):
-        # 检查是否包含认证相关代码
-        if re.search(r'\b(getCurrentUser|currentAuthenticatedUser|signIn|signOut|Auth\.)', source):
-            traits.append("Frontend_Auth_Integration")
-    
-    # 5. Service Worker 特殊处理
-    if 'serviceworker' in filename or filename == 'sw.js':
-        # Service Worker 不应该有 Frontend_API_Consumer 标签
-        traits = [t for t in traits if t != "Frontend_API_Consumer"]
-        if "Frontend_Config" not in traits:
-            traits.append("Frontend_Config")
-
-    return traits
-
 
 def tag_file(source: str, file_path: str) -> List[str]:
     tags: Set[str] = set()
     lower = source.lower()
-    
-    # 前端特征分析
-    # 如果文件路径包含 frontend, client, ui, web 等关键词，或者扩展名是前端特有的
-    is_frontend_path = any(part in {'frontend', 'client', 'ui', 'web', 'public'} for part in Path(file_path).parts)
-    ext = Path(file_path).suffix.lower()
-    
-    if is_frontend_path or ext in {'.jsx', '.tsx', '.vue'}:
-        frontend_traits = detect_frontend_characteristics(source, file_path)
-        tags.update(frontend_traits)
-        
-        # 如果没有任何特殊特征，且是前端代码文件，可能是一个纯 UI 组件
-        if not frontend_traits and ext in FRONTEND_EXTENSIONS:
-            tags.add("Frontend_UI_Component")
-        
-        # 前端文件：只返回前端标签，不检测后端标签
-        return sorted(tags)
-
     # 后端/通用特征分析
     
     # AWS SDK 检测
@@ -178,13 +94,43 @@ def tag_file(source: str, file_path: str) -> List[str]:
     return sorted(tags)
 
 
-def module_name_from_path(root: Path, file_path: Path) -> str:
+def module_name_from_path(root: Path, file_path: Path, app_name: str = None) -> str:
+    """
+    根据文件路径生成模块名
+    
+    Args:
+        root: 应用根目录
+        file_path: 文件完整路径
+        app_name: 应用名（用于在符号ID中保留命名空间前缀）
+    
+    Returns:
+        模块名，如 "shopping-cart.app" 或 "app"（取决于是否提供app_name）
+    """
     rel = file_path.relative_to(root)
-    return ".".join(rel.with_suffix("").parts)
+    parts = rel.with_suffix("").parts
+    
+    # 如果提供了app_name，添加为前缀以确保全局唯一性
+    if app_name:
+        return ".".join([app_name] + list(parts))
+    else:
+        return ".".join(parts)
 
 
-def analyze_python_file(root: Path, file_path: Path) -> Dict[str, Any]:
+def analyze_python_file(root: Path, file_path: Path, app_name: str = None) -> Dict[str, Any]:
+    """
+    分析Python文件
+    
+    Args:
+        root: 应用根目录
+        file_path: 文件完整路径
+        app_name: 应用名（用于在符号表中保留命名空间前缀）
+    """
     rel_path = str(file_path.relative_to(root).as_posix())
+    
+    # 如果提供了app_name，为路径添加前缀以确保全局唯一性
+    if app_name:
+        rel_path = f"{app_name}/{rel_path}"
+    
     with file_path.open("r", encoding="utf-8", errors="ignore") as f:
         source = f.read()
 
@@ -204,7 +150,7 @@ def analyze_python_file(root: Path, file_path: Path) -> Dict[str, Any]:
             "symbols": [],
         }
 
-    module_name = module_name_from_path(root, file_path)
+    module_name = module_name_from_path(root, file_path, app_name)
 
     class Visitor(ast.NodeVisitor):
         def visit_Import(self, node: ast.Import) -> None:  # type: ignore[override]
@@ -352,10 +298,23 @@ def _find_function_end_js(lines: List[str], start_idx: int) -> int:
     return start_idx + 2
 
 
-def analyze_js_like_file(root: Path, file_path: Path) -> Dict[str, Any]:
+def analyze_js_like_file(root: Path, file_path: Path, app_name: str = None) -> Dict[str, Any]:
+    """
+    分析JavaScript/TypeScript文件
+    
+    Args:
+        root: 应用根目录
+        file_path: 文件完整路径
+        app_name: 应用名（用于在符号表中保留命名空间前缀）
+    """
     import re
 
     rel_path = str(file_path.relative_to(root).as_posix())
+    
+    # 如果提供了app_name，为路径添加前缀以确保全局唯一性
+    if app_name:
+        rel_path = f"{app_name}/{rel_path}"
+    
     with file_path.open("r", encoding="utf-8", errors="ignore") as f:
         source = f.read()
 
@@ -364,23 +323,7 @@ def analyze_js_like_file(root: Path, file_path: Path) -> Dict[str, Any]:
     entry_points: List[Dict[str, Any]] = []
     symbol_table: List[Dict[str, Any]] = []
     
-    # 判断是否是前端文件
-    is_frontend_path = any(part in {'frontend', 'client', 'ui', 'web', 'public', 'src', 'www'} for part in Path(file_path).parts)
-    ext = Path(file_path).suffix.lower()
-    is_frontend = is_frontend_path or ext in {'.jsx', '.tsx', '.vue'}
-    
-    # 前端文件判断：如果没有明显的前端特征标签，但路径表明是前端，也认为是前端
-    if is_frontend:
-        # 前端文件：只需要标签，不需要依赖和符号表
-        return {
-            "rel_path": rel_path,
-            "tags": tags,
-            "dependencies": [],
-            "entry_points": [],
-            "symbols": [],
-        }
-
-    # 后端文件：提取依赖
+    # 提取依赖
     # Dependencies: require()/import
     dep_patterns = [
         re.compile(r"require\(['\"]([^'\"]+)['\"]\)"),
@@ -408,7 +351,7 @@ def analyze_js_like_file(root: Path, file_path: Path) -> Dict[str, Any]:
         )
 
     # Symbol table - 增强的JavaScript函数识别
-    module_name = module_name_from_path(root, file_path)
+    module_name = module_name_from_path(root, file_path, app_name)
     lines = source.splitlines()
     
     # 扩展的函数识别模式
@@ -716,6 +659,9 @@ def extract_dynamodb_info(monolith_root: Path, file_tags: Dict[str, List[str]]) 
 def run_static_analysis(monolith_root: Path) -> Dict[str, Any]:
     project_structure = build_project_structure(monolith_root)
     
+    # 获取应用名（使用根目录名称作为应用标识）
+    app_name = monolith_root.name
+    
     # 分析项目配置（依赖文件）
     config_info = analyze_project_config(monolith_root)
     
@@ -740,10 +686,10 @@ def run_static_analysis(monolith_root: Path) -> Dict[str, Any]:
                 continue
                 
             if ext == ".py":
-                result = analyze_python_file(monolith_root, file_path)
+                result = analyze_python_file(monolith_root, file_path, app_name)
             else:
                 # JS, TS, JSX, TSX, Vue 统一走 JS 分析逻辑（主要靠正则）
-                result = analyze_js_like_file(monolith_root, file_path)
+                result = analyze_js_like_file(monolith_root, file_path, app_name)
 
             rel_path = result["rel_path"]
             dependency_graph[rel_path] = result["dependencies"]

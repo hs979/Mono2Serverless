@@ -1,42 +1,55 @@
 tasks:
-  # Task 1: 架构设计 - 分析单体应用并设计完整的serverless架构
   - id: architect_blueprint
     agent: architect
     description: |
       Read storage/analysis_report.json and design a comprehensive serverless
       application architecture. Output a detailed blueprint.json covering:
       
-      1. Backend Architecture:
+      1. Lambda Architecture:
          - Lambda functions grouped by domain (user, order, payment, etc.)
          - ⚠️ EXCLUDE functions handled by Cognito (login, register) - list them in "dropped_functions"
          - ⚠️ EXCLUDE infrastructure scripts (init_db.py, create_tables.py) - they become SAM resources, not Lambdas
          - Step Functions for service orchestration (if needed)
          - Shared Lambda layers for common utilities
       
-      2. Frontend Architecture:
-         - **Condition**: Check analysis_report.file_tags. If no frontend files (e.g., tags Frontend_* or frontend/ dirs), set to `null` and SKIP.
-         - Files requiring migration (API consumers, configs)
-         - Files to copy unchanged (UI components)
-         - New configuration files needed (.env.example, aws-exports.js)
-      
-      3. Data Architecture:
+      2. Data Architecture:
          - DynamoDB table schemas (directly from analysis_report)
          - Table relationships and indexes
+         - S3 buckets for object storage (if needed)
       
-      4. Authentication Strategy:
+      3. Authentication Strategy:
          - Cognito User Pools configuration (if auth detected)
-         - Frontend integration approach (**IF frontend exists**)
+         - User pool attributes and password policies
+         - Lambda triggers (PostConfirmation, PreAuthentication, etc.)
       
-      5. API Gateway Configuration:
-         - REST API design
-         - CORS settings for frontend (**IF frontend exists**)
+      4. API Gateway Configuration:
+         - API type (REST API or WebSocket API)
+         - For WebSocket: Route keys and Lambda integrations for real-time features
+         - CORS settings
          - Stages (dev, prod)
+         - Throttling and authorization configuration
+      
+      5. Integration Patterns:
+         - Asynchronous processing (SQS, SNS)
+         - Event-driven architecture (EventBridge)
+         - Scheduled tasks (EventBridge Scheduler)
+      
+      6. Monitoring & Operations (RECOMMENDED for production):
+         - CloudWatch Log Groups configuration (retention policies)
+         - CloudWatch Alarms for critical metrics (Lambda errors, API 4XX/5XX, DynamoDB throttles)
       
       The blueprint should provide a complete migration roadmap without
       implementation details.
-    expected_output: "A complete blueprint.json file at storage/blueprint.json with backend, frontend (optional), data, auth architecture, and a list of dropped_functions"
+    expected_output: |
+      A complete blueprint.json file at storage/blueprint.json including:
+      - Lambda architecture (functions, step functions, layers)
+      - Data architecture (DynamoDB, S3)
+      - API Gateway configuration (REST/WebSocket)
+      - Auth architecture (Cognito)
+      - Integration patterns (SQS, SNS, EventBridge)
+      - Monitoring configuration (CloudWatch Alarms, Log Groups)
+      - List of dropped_functions with reasons
 
-  # Task 2: 完整应用代码生成 - 生成可部署的serverless应用
   - id: generate_complete_application
     agent: code_developer
     description: |
@@ -47,37 +60,38 @@ tasks:
          ⚠️ IMPORTANT: If the source path contains a colon (e.g., "path/to/file.js:functionName"), YOU MUST SPLIT IT. Only read the file path part ("path/to/file.js").
       2. Secondary Source: Use `CodeRAGTool` to locate helper functions, models, or **similar code patterns** to understand intent and fill knowledge gaps. Always read the full content of found files with `ReadFileTool`.
       
-      BACKEND COMPONENTS:
+      APPLICATION COMPONENTS:
       1. Lambda Functions:
-         - Create handler.py (or .js) for each Lambda in output/backend/lambdas/{name}/
+         - Create handler.py (or .js) for each Lambda in output/lambdas/{name}/
          - Transform monolith routes to lambda_handler(event, context) functions
          - ⚠️ SKIP generation for any functions listed in "dropped_functions"
          - Convert database calls to DynamoDB boto3 operations
+         - Add proper error handling, logging, and environment variable usage
          - Add requirements.txt with dependencies
       
       2. Shared Utilities:
-         - Extract common code to output/backend/shared/
-         - Create Lambda layer structure in output/backend/layers/
+         - Extract common code to output/shared/
+         - Create Lambda layer structure in output/layers/
+         - Include database clients, logging utilities, authentication helpers
       
       3. Step Functions (if needed):
-         - Generate .asl.json state machine definitions in output/backend/statemachines/
+         - Generate .asl.json state machine definitions in output/statemachines/
+         - Include error handling, retry logic, and timeout configuration
       
-      FRONTEND COMPONENTS (**OPTIONAL - Skip if blueprint.frontend_architecture is null**):
-      1. Migrate API Client Code:
-         - Replace hardcoded URLs with environment variables
-         - Update API call formats for API Gateway
-         - Add Cognito authentication integration
-         - Write to output/frontend/src/
-      
-      2. Configuration Files:
-         - Create .env.example with PLACEHOLDERS for values that will be generated after deployment (e.g., API_URL=REPLACE_AFTER_DEPLOY).
-         - Create aws-exports.js for Amplify (if Cognito used)
-      
-      3. Copy UI Components:
-         - Copy unchanged components from monolith
+      4. Event Handlers (if async processing exists):
+         - SQS queue handlers for background jobs
+         - SNS topic subscribers for notifications
+         - EventBridge rule handlers for scheduled tasks
       
       DOCUMENTATION:
-      - Create output/README.md with deployment guide. Explicitly state if it is a Backend-only deployment.
+      - Create output/README.md with:
+        * Project structure overview
+        * Prerequisites (AWS CLI, SAM CLI, Python/Node versions)
+        * Quick start: `sam build && sam deploy --guided`
+        * Deployment configuration (samconfig.toml)
+        * Environment variables guide
+        * API endpoint documentation
+        * Testing instructions with sample requests
       
       PROCESS:
       - Use ReadFileTool to read monolith source code from file mappings
@@ -86,9 +100,8 @@ tasks:
       
       CRITICAL: Preserve all business logic exactly as in monolith.
       Generate complete, runnable files, not code snippets.
-    expected_output: "A complete serverless application in output/ directory with backend/, frontend/ (optional), and README.md, ready for SAM deployment"
+    expected_output: "A complete serverless application in output/ directory with lambdas/, shared/, statemachines/ (if applicable), and README.md, ready for SAM deployment"
 
-  # Task 3: SAM模板生成 - 为生成的应用创建基础设施定义
   - id: generate_sam_templates
     agent: sam_engineer
     description: |
@@ -96,22 +109,23 @@ tasks:
       then generate AWS SAM templates that perfectly match the code structure.
       
       STEP 1: CODE ANALYSIS
-      - Use FileListTool to scan output/backend/lambdas/ directory
+      - Use FileListTool to scan output/lambdas/ directory
       - For each Lambda directory found:
         * Read handler.py or handler.js to extract handler function name
         * Read requirements.txt or package.json for dependencies
         * Determine runtime (python3.11, nodejs18.x, etc.)
       
       STEP 2: MAIN TEMPLATE GENERATION
-      Create output/infrastructure/template.yaml with:
+      Create output/template.yaml with:
       
       1. Globals Section:
          - Default Lambda settings (timeout, memory, runtime)
-         - API Gateway CORS configuration (**Check if frontend exists**)
+         - API Gateway CORS configuration (for external API consumers)
+         - Tracing configuration (X-Ray)
       
       2. Parameters:
          - Environment (dev/prod)
-         - Any configurable values
+         - Configurable values (table names, timeouts, etc.)
       
       3. Lambda Functions:
          - AWS::Serverless::Function for EACH discovered Lambda
@@ -120,33 +134,60 @@ tasks:
          - Environment variables referencing DynamoDB tables (!Ref)
          - IAM policies (DynamoDBCrudPolicy, etc.)
          - API Gateway events for each route
+         - Event source mappings (SQS, SNS, DynamoDB Streams, EventBridge)
       
       4. DynamoDB Tables:
          - AWS::DynamoDB::Table for each table in blueprint
-         - Partition key, sort key, GSI from blueprint schema
+         - Partition key, sort key, GSI from actual code analysis
          - BillingMode: PAY_PER_REQUEST
+         - DynamoDB Streams (if event-driven patterns detected)
       
       5. Step Functions (if statemachines/ exists):
          - AWS::Serverless::StateMachine
          - DefinitionUri pointing to .asl.json files
+         - IAM roles for state machine execution
       
       6. Lambda Layers (if layers/ exists):
          - AWS::Serverless::LayerVersion for shared code
       
-      7. Outputs:
-         - API Gateway endpoint URL
-         - DynamoDB table names
-         - Other resource identifiers for frontend configuration (**If frontend exists**)
+      7. Messaging & Events (if async processing exists):
+         - AWS::SQS::Queue for job queues
+         - AWS::SNS::Topic for pub/sub notifications
+         - AWS::Events::Rule for scheduled tasks
+      
+      8. Storage (if file handling exists):
+         - AWS::S3::Bucket for object storage
+         - Bucket policies and CORS configuration
+      
+      9. WebSocket API (if real-time features exist):
+         - AWS::ApiGatewayV2::Api for WebSocket API
+         - AWS::ApiGatewayV2::Route for $connect, $disconnect, and custom routes
+         - AWS::ApiGatewayV2::Integration linking routes to Lambda functions
+         - AWS::ApiGatewayV2::Stage for deployment stages
+      
+      10. Monitoring Resources (MANDATORY):
+          - AWS::Logs::LogGroup for each Lambda function (with retention policy)
+          - AWS::CloudWatch::Alarm for critical metrics (Lambda errors, API 4XX/5XX, DynamoDB throttles)
+      
+      11. Outputs:
+          - API Gateway endpoint URLs (REST/WebSocket)
+          - DynamoDB table names
+          - SQS queue URLs
+          - SNS topic ARNs
+          - S3 bucket names
+          - Cognito User Pool IDs (if auth used)
       
       STEP 3: COGNITO TEMPLATE (if auth required)
       If blueprint.auth_architecture includes Cognito:
-      Create output/infrastructure/cognito.yaml with:
+      Create output/cognito.yaml with:
       - AWS::Cognito::UserPool
       - AWS::Cognito::UserPoolClient
       - Outputs: UserPoolId, UserPoolClientId
       
-      STEP 4: PARAMETERS FILE
-      Create output/infrastructure/parameters.json for deployment
+      STEP 4: DEPLOYMENT CONFIGURATION
+      Create output/samconfig.toml (optional but recommended) with:
+      - Default deployment parameters
+      - Region, stack name, capabilities
       
       STEP 5: VALIDATION
       1. Run SAMValidateTool on template.yaml
@@ -154,6 +195,7 @@ tasks:
       3. Validate cognito.yaml if created
       4. Verify consistency:
          - Every Lambda directory has a SAM Function resource
+         - CodeUri paths are correct relative to template location
          - Handler names match actual code
          - Environment variables align with code usage
          - IAM policies cover all boto3 calls in code
@@ -162,4 +204,7 @@ tasks:
       
       CRITICAL: Templates must match the ACTUAL generated code structure,
       not just the blueprint. Analyze the real output/ directory.
-    expected_output: "Validated SAM template files in output/infrastructure/ (template.yaml and optionally cognito.yaml) that exactly match the generated application code"
+      
+      IMPORTANT: Always include CloudWatch Log Groups and Alarms for production readiness,
+      even if not explicitly mentioned in blueprint. These are mandatory infrastructure.
+    expected_output: "Validated SAM template files in output/ directory (template.yaml and optionally cognito.yaml, samconfig.toml) that exactly match the generated application code and are ready for deployment with 'sam build && sam deploy'"

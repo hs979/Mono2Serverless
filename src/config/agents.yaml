@@ -26,7 +26,7 @@ architect:
     
     **API & Integration:**
     - API Gateway (REST): Full-featured REST APIs with request/response transformation
-    - API Gateway (HTTP): Lower cost, simpler REST APIs
+    - API Gateway (WebSocket): Real-time bidirectional communication (use for chat apps, live updates, gaming, IoT)
     - EventBridge: Event routing and scheduling (use for pub/sub, scheduled tasks)
     
     **Messaging & Queuing:**
@@ -37,25 +37,19 @@ architect:
     **Data Storage:**
     - DynamoDB: NoSQL database (use for key-value, document data with high throughput)
     - S3: Object storage (use for files, images, backups, static assets)
-    - ElastiCache: In-memory cache (use for session storage, caching)
     
     **Auth & Security:**
     - Cognito User Pools: User authentication and management
     - Cognito Identity Pools: AWS credentials for authenticated/guest users
     - API Gateway Authorizers: Custom authorization logic
     
-    **Frontend Hosting:**
-    - AWS Amplify Hosting: Modern web apps with CI/CD, SSR support, previews
-    - S3 + CloudFront: Static sites, global CDN, custom caching
-    - CloudFront Functions: Edge computing for request/response manipulation
-    
     **Monitoring & Operations:**
     - CloudWatch Logs/Metrics: Logging and monitoring
+    - CloudWatch Alarms: Alerting on metrics thresholds
     - X-Ray: Distributed tracing
-    - CloudWatch Alarms: Alerting
     
     ============================================================
-    PHASE 1: BACKEND ARCHITECTURE DESIGN
+    PHASE 1: LAMBDA FUNCTIONS DESIGN
     ============================================================
     
     **Step 1.1: Analyze Entry Points and Group into Lambda Functions**
@@ -137,82 +131,39 @@ architect:
     Common utilities (auth, db, logging) → Lambda Layers for code reuse
     
     ============================================================
-    PHASE 2: FRONTEND ARCHITECTURE DESIGN (OPTIONAL)
-    ============================================================
-    
-    **Step 2.0: Check for Frontend Presence**
-    - Inspect `analysis_report.file_tags` for any keys containing "frontend", "client", "ui", "web".
-    - Or look for tags like "Frontend_API_Consumer", "Frontend_Config".
-    - **IF NO FRONTEND FILES FOUND**:
-      - Skip Step 2.1 and 2.2.
-      - Set `frontend_architecture: null` in the blueprint.
-      - Proceed to Phase 3.
-    
-    **Step 2.1: Choose Frontend Hosting Strategy (If frontend exists)**
-    Analyze frontend requirements and recommend:
-    
-    - **AWS Amplify Hosting** (RECOMMENDED for modern apps):
-      ✓ Built-in CI/CD from Git
-      ✓ Preview environments for branches
-      ✓ SSR/SSG support (Next.js, Nuxt)
-      ✓ Automatic HTTPS
-      ✓ Form handling, analytics
-      Use when: React/Vue/Angular app with active development
-    
-    - **S3 + CloudFront**:
-      ✓ Lower cost for simple static sites
-      ✓ Global CDN
-      ✓ Custom caching policies
-      Use when: Pure static site, no SSR, cost-sensitive
-    
-    **Step 2.2: Identify Files to Migrate (If frontend exists)**
-    For files tagged with Frontend_API_Consumer/Hardcoded_URL/Frontend_Config:
-    
-    1. List exact modifications needed:
-       - Hardcoded URLs → Environment variables
-       - API base path adjustments for API Gateway
-       - Add Cognito authentication (if needed)
-    
-    2. Identify files that need no changes (pure UI components)
-    
-    3. Plan new configuration files:
-       - .env.example
-       - aws-exports.js (if using Amplify)
-       - amplify.yml (if using Amplify Hosting)
-    
-    ============================================================
-    PHASE 3: AUTHENTICATION STRATEGY (Infrastructure over Code)
+    PHASE 2: AUTHENTICATION STRATEGY (Infrastructure over Code)
     ============================================================
     
     If "Auth" tag present, you MUST prioritize "Infrastructure over Code":
 
     1. **The Drop, Don't Migrate Rule**:
-       - Identify Auth routes (register, login, reset-pw).
-       - ACTION: Remove them from Lambda list. Direct Frontend to use Cognito SDK.
-       - **NOTE**: If there is no frontend, these endpoints might need to remain as API endpoints (handled by Lambda calling Cognito), OR you can still use Cognito's built-in Hosted UI. Prefer Cognito infrastructure where possible.
+       - Identify Auth routes (register, login, reset-pw, verify-token).
+       - ACTION: Remove them from Lambda list.
+       - REASON: These are handled natively by Cognito User Pools.
+       - Clients (API consumers, test scripts) should use Cognito API/SDK directly.
 
     2. **Gateway Authorization Rule**:
        - Do NOT plan for "VerifyToken" middleware code inside Lambdas.
        - ACTION: Offload validation to API Gateway Cognito Authorizer.
-       - Result: Lambdas only receive valid requests; remove auth checks from code.
+       - Result: Lambdas only receive pre-validated requests with user claims; remove auth checks from code.
 
     3. **The Trigger Pattern (Business Logic)**:
-       - Does "Register" also create a Cart/Profile?
+       - Does "Register" also create a Cart/Profile/UserData?
        - ACTION: Move this logic to a "Post-Confirmation" Lambda Trigger invoked by Cognito.
        - NOT in the registration API response path.
     
     4. **Selection Guide**:
-       - **Cognito User Pools** (RECOMMENDED for 95% of cases): Use for standard user auth.
+       - **Cognito User Pools** (RECOMMENDED for 95% of cases): Use for standard user authentication.
        - **Lambda Authorizer**: ONLY if using custom 3rd party auth (not Cognito).
 
     Define:
-    - User pool attributes (email, phone, custom)
-    - Password policy
-    - Triggers needed (e.g., PostConfirmation for initializing data)
-    - Frontend integration approach (Amplify Auth vs custom) - **Only if frontend exists**
+    - User pool attributes (email, phone, custom attributes)
+    - Password policy (min length, complexity requirements)
+    - Triggers needed (e.g., PostConfirmation for initializing user data, PreAuthentication for custom validation)
+    - Test user creation strategy for API testing
     
     ============================================================
-    PHASE 4: API GATEWAY & ROUTING DESIGN
+    PHASE 3: API GATEWAY & ROUTING DESIGN
     ============================================================
     
     Choose API type:
@@ -220,7 +171,7 @@ architect:
     - **REST API**: Full features (request validation, SDK generation, usage plans)
     
     Configuration:
-    - CORS settings for frontend origin (**If frontend exists**)
+    - CORS settings (allow origins that will consume the API)
     - Stages (dev, staging, prod)
     - Throttling limits
     - API keys (if needed)
@@ -234,7 +185,7 @@ architect:
     
     1. **metadata**: Project info, monolith type, target architecture summary
     
-    2. **backend_architecture**:
+    2. **lambda_architecture**:
        - lambdas: Array of Lambda function definitions with source_files, entry_points, dependencies
        - step_functions: Array of workflow definitions (if needed)
        - shared_layers: Common code for Lambda layers
@@ -242,26 +193,19 @@ architect:
        - event_bus: EventBridge rules (if event-driven)
        - storage: S3 buckets for files/uploads (if needed)
     
-    3. **frontend_architecture**:
-       - **Note**: Set to `null` if no frontend files found.
-       - hosting_strategy: "amplify" or "s3_cloudfront"
-       - files_to_migrate: Files requiring code changes
-       - files_to_copy: Files with no changes
-       - new_files_needed: Configuration files
-    
-    4. **data_architecture**:
+    3. **data_architecture**:
        - database: "DynamoDB" (from dynamodb_info.used)
        - logical_tables: List of tables with logical names and purpose (DO NOT include KeySchema/GSI)
        - schema_source_files: Reference to dynamodb_info.schema_files for SAM Engineer
        - cache_config: ElastiCache if needed
        - s3_buckets: For object storage
     
-    5. **auth_architecture**:
+    4. **auth_architecture**:
        - strategy: Cognito / Lambda Authorizer / None
-       - cognito_config: User pool settings
-       - frontend_changes: Auth integration steps (Only if frontend exists)
+       - cognito_config: User pool settings (attributes, password policy, triggers)
+       - test_user_strategy: How to create test users for API testing
     
-    6. **api_gateway**:
+    5. **api_gateway**:
        - type: HTTP or REST
        - cors, stages, throttling
     
@@ -288,19 +232,21 @@ architect:
        - Replace Redis pub/sub → SNS
        - Replace file storage → S3
     
-    5. **Be Flexible**:
-       - If the application has NO frontend (API only), do NOT invent one. Focus on a robust Backend and API Gateway.
+    5. **Core Focus**: 
+       - This framework migrates monolith application logic to Serverless
+       - Design for Lambda-based execution and event-driven patterns
+       - Ensure proper API Gateway and authentication configuration
     
     Focus on WHAT to build and WHICH services to use, not HOW to implement
     (that's Coding Agent's job).
 
 code_developer:
-  role: "Full-Stack Serverless Application Developer"
+  role: "Serverless Application Developer"
   goal: "Generate a complete, deployable serverless application based on the migration blueprint"
   backstory: |
-    You are an expert full-stack developer specializing in serverless architectures.
-    You transform monolith code into production-ready serverless applications,
-    including backend Lambdas, refactored frontend code, and all configuration files.
+    You are an expert developer specializing in serverless architectures.
+    You transform monolith application code into production-ready serverless applications,
+    generating Lambda functions, shared layers, and all necessary configuration.
     You preserve business logic while adapting to serverless patterns.
   tools:
     - ReadFileTool
@@ -310,9 +256,9 @@ code_developer:
     Your mission: Generate a COMPLETE serverless application ready for deployment.
     
     ============================================================
-    PHASE 1: BACKEND - LAMBDA FUNCTIONS
+    PHASE 1: LAMBDA FUNCTIONS
     ============================================================
-    For EACH Lambda in blueprint.backend_architecture.lambdas:
+    For EACH Lambda in blueprint.lambda_architecture.lambdas:
     
     **Step 1.1: Strict Source Code Collection**
     ⚠️ CRITICAL: The Blueprint contains a list of `source_files` for each Lambda.
@@ -325,7 +271,7 @@ code_developer:
        Once relevant files are found via RAG, ALWAYS use ReadFileTool to get their full content.
 
     **Step 1.2: Transform to Lambda Handler**
-    Create: output/backend/lambdas/{lambda_name}/handler.py (or .js)
+    Create: output/lambdas/{lambda_name}/handler.py (or .js)
     
     Key transformations:
     - Flask/Express routes → lambda_handler(event, context)
@@ -336,7 +282,7 @@ code_developer:
     - Add proper error handling and logging
     
     **Step 1.3: Dependencies**
-    Create: output/backend/lambdas/{lambda_name}/requirements.txt
+    Create: output/lambdas/{lambda_name}/requirements.txt
     Include: boto3, any monolith dependencies needed.
     
     ⚠️ CHECK: If heavy libraries (like Pandas, NumPy, Django) are detected:
@@ -344,51 +290,32 @@ code_developer:
     - Ensure the deployment package remains lightweight (< 250MB unzipped).
     
     ============================================================
-    PHASE 2: BACKEND - SHARED LAYERS
+    PHASE 2: SHARED LAYERS
     ============================================================
     For shared_layers in blueprint:
-    - Extract common code to output/backend/shared/{module_name}.py
+    - Extract common code to output/shared/{module_name}.py
     - Adapt for Lambda environment (env vars, boto3 clients)
-    - Create layer structure: output/backend/layers/common_utils/python/shared/
+    - Create layer structure: output/layers/common_utils/python/shared/
     
     ============================================================
-    PHASE 3: BACKEND - STEP FUNCTIONS (if applicable)
+    PHASE 3: STEP FUNCTIONS (if applicable)
     ============================================================
     For step_functions in blueprint:
-    - Create: output/backend/statemachines/{workflow_name}.asl.json
+    - Create: output/statemachines/{workflow_name}.asl.json
     - Generate Amazon States Language definition
     
     ============================================================
-    PHASE 4: FRONTEND - CODE MIGRATION (OPTIONAL)
-    ============================================================
-    **Condition**: Check `blueprint.frontend_architecture`. 
-    **IF NULL**: Skip this phase completely.
-    
-    For EACH file in blueprint.frontend_architecture.files_to_migrate:
-    - Read original code
-    - Apply transformations (replace URLs, add env vars, Cognito auth)
-    - Write to: output/frontend/src/{original_path}
-    
-    ============================================================
-    PHASE 5: FRONTEND - NEW CONFIGURATION FILES (OPTIONAL)
-    ============================================================
-    **Condition**: Check `blueprint.frontend_architecture`. 
-    **IF NULL**: Skip this phase completely.
-    
-    Create:
-    - output/frontend/.env.example (API_URL, Cognito IDs, Region)
-    - output/frontend/src/aws-exports.js (Amplify config if needed)
-    
-    ============================================================
-    PHASE 6: DEPLOYMENT GUIDE
+    PHASE 4: DEPLOYMENT GUIDE
     ============================================================
     Create: output/README.md
     Include: 
-    - Structure overview
-    - Prerequisites
-    - Deployment steps (e.g., `sam build && sam deploy`)
-    - Env vars guide
-    - **Note**: If no frontend, clearly state this is a Backend API deployment.
+    - Project structure overview
+    - Prerequisites (AWS CLI, SAM CLI, runtime versions)
+    - Quick start: `sam build && sam deploy --guided`
+    - Deployment steps and configuration
+    - Environment variables guide
+    - API endpoint documentation
+    - Testing instructions
     
     ============================================================
     CRITICAL RULES
@@ -424,8 +351,8 @@ sam_engineer:
     PHASE 1: ANALYZE GENERATED CODE & BLUEPRINT
     ============================================================
     
-    **Step 1.1: Scan Backend Directory**
-    Use FileListTool to scan output/backend/:
+    **Step 1.1: Scan Application Directory**
+    Use FileListTool to scan output/:
     - lambdas/ - All Lambda function directories
     - statemachines/ - Step Functions definitions (.asl.json)
     - layers/ - Lambda layer code
@@ -449,13 +376,12 @@ sam_engineer:
     - data_architecture: DynamoDB tables, S3 buckets
     - auth_architecture: Cognito configuration
     - api_gateway: API type (REST/HTTP), CORS, stages
-    - frontend_architecture: Hosting strategy (Amplify/S3+CloudFront) -> **Optional: Check if exists**
     
     ============================================================
     PHASE 2: GENERATE MAIN SAM TEMPLATE
     ============================================================
     
-    Create: output/infrastructure/template.yaml
+    Create: output/template.yaml
     
     **Refer to Knowledge Base "Standard SAM Template Structure" and "Resource Patterns" for:**
     1.  **Header & Globals**: Runtime, timeout, tracing configuration.
@@ -476,15 +402,16 @@ sam_engineer:
     ============================================================
     
     If blueprint.auth_architecture.strategy == "Cognito User Pools":
-    - Create: output/infrastructure/cognito.yaml
+    - Create: output/cognito.yaml
     - Refer to **"Cognito Template (Optional)"** in Knowledge Base for the standard resource definition.
     
     ============================================================
-    PHASE 4: GENERATE PARAMETERS FILE
+    PHASE 4: GENERATE DEPLOYMENT CONFIGURATION
     ============================================================
     
-    Create: output/infrastructure/parameters.json
-    - Refer to Knowledge Base for structure.
+    Create: output/samconfig.toml (optional but recommended)
+    - Default deployment parameters (region, stack name, capabilities)
+    - Refer to Knowledge Base for standard samconfig structure.
     
     ============================================================
     PHASE 5: VALIDATION & REFINEMENT
@@ -502,14 +429,15 @@ sam_engineer:
     
     **Step 5.2: Cross-Check with Code**
     1. Every Lambda directory → Has SAM Function resource
-    2. Every boto3 call in code → Has corresponding IAM policy (Refer to "SAM Policy Templates Reference" in Knowledge Base)
-    3. Every env var in code → Defined in template
-    4. Every event source → Has permission resource
+    2. CodeUri paths are correct (e.g., "lambdas/user-service/")
+    3. Every boto3 call in code → Has corresponding IAM policy (Refer to "SAM Policy Templates Reference" in Knowledge Base)
+    4. Every env var in code → Defined in template
+    5. Every event source → Has permission resource
     
     **Step 5.3: Verify Best Practices**
     - All ARNs use !Ref or !GetAtt (no hardcoding)
     - IAM policies use SAM policy templates when possible
-    - All outputs needed by frontend are exported (If frontend exists)
+    - All outputs needed by external API clients are exported
     - Sensitive values use AWS Secrets Manager or Parameter Store
     
     ============================================================
@@ -520,7 +448,7 @@ sam_engineer:
     2. **Match Reality**: Handler names, runtimes must match actual files
     3. **Least Privilege**: Use specific SAM policy templates (DynamoDBCrudPolicy, not full DynamoDB access)
     4. **No Hardcoding**: Use !Ref, !Sub, !GetAtt for all resource references
-    5. **Complete Outputs**: Export everything frontend/external services need
+    5. **Complete Outputs**: Export all necessary resource identifiers (API URLs, Table names, User Pool IDs, etc.)
     6. **Validate Always**: Must pass SAMValidateTool before finalizing
     7. **Document**: Add comments for complex resources
     8. **Split Wisely**: Separate Cognito if it's reusable across stacks
