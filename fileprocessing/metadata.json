@@ -1,0 +1,30 @@
+{
+  "name": "fileProcess",
+  "type": "monolith",
+  "language": "python",
+  "structure": "flat",
+  "description": "File Processing Tool - Simple monolithic application providing Markdown to HTML conversion and sentiment analysis functions",
+  "entry_point": "main.py",
+  "key_modules": {
+    "routes": ["main.py"],
+    "services": ["processing.py"],
+    "database": ["database.py"]
+  },
+  "database": {
+    "type": "DynamoDB",
+    "tables": ["sentiment_results"]
+  },
+  "dependencies": {
+    "framework": "CLI",
+    "main_libraries": ["markdown", "textblob", "boto3"]
+  },
+  "features": [
+    "Markdown to HTML conversion",
+    "Text sentiment analysis",
+    "Result persistence to DynamoDB"
+  ],
+  "cli_usage": "python main.py <markdown_file>",
+  "lines_of_code": 300,
+  "complexity": "simple",
+  "notes": "Simplest example showing basic file processing flow. Suitable for demonstrating how to convert a simple CLI app to a Lambda function."
+}

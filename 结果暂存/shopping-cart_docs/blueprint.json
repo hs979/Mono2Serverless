@@ -1,0 +1,369 @@
+{
+  "blueprint_version": "1.0",
+  "application_name": "shopping-cart-serverless",
+  "description": "Serverless migration blueprint for shopping cart monolith application",
+  "created_date": "2024-01-15",
+  "last_updated": "2024-01-15",
+  
+  "lambda_architecture": {
+    "domains": [
+      {
+        "name": "product",
+        "description": "Product catalog management",
+        "functions": [
+          {
+            "name": "GetProductsFunction",
+            "description": "Retrieve all products",
+            "source": "shopping-cart/app.py:get_products",
+            "runtime": "python3.12",
+            "memory_size": 128,
+            "timeout": 10,
+            "environment_variables": {"PRODUCTS_TABLE": "${ProductsTable}"},
+            "permissions": ["dynamodb:Scan"],
+            "event_source": "API Gateway GET /product"
+          },
+          {
+            "name": "GetProductFunction",
+            "description": "Retrieve specific product",
+            "source": "shopping-cart/app.py:get_product",
+            "runtime": "python3.12",
+            "memory_size": 128,
+            "timeout": 10,
+            "environment_variables": {"PRODUCTS_TABLE": "${ProductsTable}"},
+            "permissions": ["dynamodb:GetItem"],
+            "event_source": "API Gateway GET /product/{product_id}"
+          }
+        ]
+      },
+      {
+        "name": "cart",
+        "description": "Shopping cart operations",
+        "functions": [
+          {
+            "name": "ListCartFunction",
+            "description": "List cart items",
+            "source": "shopping-cart/app.py:list_cart",
+            "runtime": "python3.12",
+            "memory_size": 256,
+            "timeout": 30,
+            "environment_variables": {"CARTS_TABLE": "${CartsTable}", "PRODUCTS_TABLE": "${ProductsTable}"},
+            "permissions": ["dynamodb:Query", "dynamodb:GetItem"],
+            "event_source": "API Gateway GET /cart"
+          },
+          {
+            "name": "AddToCartFunction",
+            "description": "Add item to cart",
+            "source": "shopping-cart/app.py:add_to_cart",
+            "runtime": "python3.12",
+            "memory_size": 256,
+            "timeout": 30,
+            "environment_variables": {"CARTS_TABLE": "${CartsTable}", "PRODUCTS_TABLE": "${ProductsTable}"},
+            "permissions": ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem"],
+            "event_source": "API Gateway POST /cart"
+          },
+          {
+            "name": "UpdateCartFunction",
+            "description": "Update cart item quantity",
+            "source": "shopping-cart/app.py:update_cart",
+            "runtime": "python3.12",
+            "memory_size": 256,
+            "timeout": 30,
+            "environment_variables": {"CARTS_TABLE": "${CartsTable}", "PRODUCTS_TABLE": "${ProductsTable}"},
+            "permissions": ["dynamodb:UpdateItem", "dynamodb:GetItem", "dynamodb:DeleteItem"],
+            "event_source": "API Gateway PUT /cart/{product_id}"
+          },
+          {
+            "name": "GetCartTotalFunction",
+            "description": "Calculate cart total",
+            "source": "shopping-cart/app.py:get_cart_total",
+            "runtime": "python3.12",
+            "memory_size": 256,
+            "timeout": 30,
+            "environment_variables": {"CARTS_TABLE": "${CartsTable}", "PRODUCTS_TABLE": "${ProductsTable}"},
+            "permissions": ["dynamodb:Query", "dynamodb:GetItem"],
+            "event_source": "API Gateway GET /cart/{product_id}/total"
+          }
+        ]
+      },
+      {
+        "name": "checkout",
+        "description": "Checkout processing",
+        "functions": [
+          {
+            "name": "CheckoutCartFunction",
+            "description": "Process checkout",
+            "source": "shopping-cart/app.py:checkout_cart",
+            "runtime": "python3.12",
+            "memory_size": 512,
+            "timeout": 60,
+            "environment_variables": {"CARTS_TABLE": "${CartsTable}", "PRODUCTS_TABLE": "${ProductsTable}", "ORDERS_TABLE": "${OrdersTable}", "CHECKOUT_QUEUE_URL": "${CheckoutQueueUrl}"},
+            "permissions": ["dynamodb:Query", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem", "sqs:SendMessage"],
+            "event_source": "API Gateway POST /cart/checkout"
+          },
+          {
+            "name": "ProcessCheckoutFunction",
+            "description": "Async checkout processing",
+            "runtime": "python3.12",
+            "memory_size": 512,
+            "timeout": 300,
+            "environment_variables": {"ORDERS_TABLE": "${OrdersTable}", "PRODUCTS_TABLE": "${ProductsTable}", "PAYMENT_EVENT_BUS": "${PaymentEventBus}"},
+            "permissions": ["dynamodb:UpdateItem", "dynamodb:GetItem", "events:PutEvents"],
+            "event_source": "SQS CheckoutQueue"
+          }
+        ]
+      },
+      {
+        "name": "migration",
+        "description": "Cart migration",
+        "functions": [
+          {
+            "name": "MigrateCartFunction",
+            "description": "Migrate anonymous cart",
+            "source": "shopping-cart/app.py:migrate_cart",
+            "runtime": "python3.12",
+            "memory_size": 512,
+            "timeout": 60,
+            "environment_variables": {"CARTS_TABLE": "${CartsTable}"},
+            "permissions": ["dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:DeleteItem"],
+            "event_source": "API Gateway POST /cart/migrate"
+          }
+        ]
+      },
+      {
+        "name": "maintenance",
+        "description": "System maintenance",
+        "functions": [
+          {
+            "name": "CleanupExpiredItemsFunction",
+            "description": "Clean expired cart items",
+            "source": "shopping-cart/models.py:cleanup_expired_items",
+            "runtime": "python3.12",
+            "memory_size": 256,
+            "timeout": 300,
+            "environment_variables": {"CARTS_TABLE": "${CartsTable}"},
+            "permissions": ["dynamodb:Scan", "dynamodb:DeleteItem"],
+            "event_source": "EventBridge Schedule (daily)"
+          }
+        ]
+      }
+    ],
+    "step_functions": [
+      {
+        "name": "CheckoutWorkflow",
+        "description": "Checkout orchestration",
+        "states": ["ValidateCart", "ReserveInventory", "ProcessPayment", "CreateOrder", "ClearCart", "SendConfirmation"],
+        "timeout": 600
+      }
+    ],
+    "lambda_layers": [
+      {
+        "name": "CommonUtilitiesLayer",
+        "description": "Shared utilities",
+        "compatible_runtimes": ["python3.12"],
+        "includes": ["shopping-cart/db.py", "shopping-cart/models.py:_python_obj_to_dynamodb", "shopping-cart/models.py:_dynamodb_to_python_obj", "shared/logger.py", "shared/error_handler.py"]
+      },
+      {
+        "name": "DataModelsLayer",
+        "description": "Data models",
+        "compatible_runtimes": ["python3.12"],
+        "includes": ["shared/models/user.py", "shared/models/product.py", "shared/models/cart.py", "shared/models/order.py"]
+      }
+    ]
+  },
+  
+  "data_architecture": {
+    "dynamodb_tables": [
+      {
+        "name": "ProductsTable",
+        "description": "Product catalog",
+        "partition_key": {"name": "product_id", "type": "S"},
+        "attributes": [
+          {"name": "product_id", "type": "S"},
+          {"name": "name", "type": "S"},
+          {"name": "description", "type": "S"},
+          {"name": "price", "type": "N"},
+          {"name": "stock_quantity", "type": "N"},
+          {"name": "category", "type": "S"},
+          {"name": "created_at", "type": "S"},
+          {"name": "updated_at", "type": "S"}
+        ],
+        "global_secondary_indexes": [
+          {
+            "name": "CategoryIndex",
+            "partition_key": "category",
+            "sort_key": "created_at",
+            "projection_type": "ALL"
+          }
+        ],
+        "billing_mode": "PAY_PER_REQUEST"
+      },
+      {
+        "name": "CartsTable",
+        "description": "Shopping cart items",
+        "partition_key": {"name": "cart_id", "type": "S"},
+        "sort_key": {"name": "product_id", "type": "S"},
+        "attributes": [
+          {"name": "cart_id", "type": "S"},
+          {"name": "product_id", "type": "S"},
+          {"name": "quantity", "type": "N"},
+          {"name": "added_at", "type": "S"},
+          {"name": "updated_at", "type": "S"},
+          {"name": "user_id", "type": "S"},
+          {"name": "expires_at", "type": "S"}
+        ],
+        "global_secondary_indexes": [
+          {
+            "name": "UserIdIndex",
+            "partition_key": "user_id",
+            "sort_key": "added_at",
+            "projection_type": "ALL"
+          }
+        ],
+        "billing_mode": "PAY_PER_REQUEST",
+        "ttl_attribute": "expires_at"
+      },
+      {
+        "name": "UsersTable",
+        "description": "User profiles",
+        "partition_key": {"name": "user_id", "type": "S"},
+        "attributes": [
+          {"name": "user_id", "type": "S"},
+          {"name": "username", "type": "S"},
+          {"name": "email", "type": "S"},
+          {"name": "created_at", "type": "S"},
+          {"name": "updated_at", "type": "S"}
+        ],
+        "global_secondary_indexes": [
+          {
+            "name": "UsernameIndex",
+            "partition_key": "username",
+            "projection_type": "ALL"
+          }
+        ],
+        "billing_mode": "PAY_PER_REQUEST"
+      },
+      {
+        "name": "OrdersTable",
+        "description": "Order history",
+        "partition_key": {"name": "order_id", "type": "S"},
+        "sort_key": {"name": "user_id", "type": "S"},
+        "attributes": [
+          {"name": "order_id", "type": "S"},
+          {"name": "user_id", "type": "S"},
+          {"name": "cart_id", "type": "S"},
+          {"name": "total_amount", "type": "N"},
+          {"name": "status", "type": "S"},
+          {"name": "items", "type": "L"},
+          {"name": "created_at", "type": "S"},
+          {"name": "updated_at", "type": "S"}
+        ],
+        "global_secondary_indexes": [
+          {
+            "name": "UserOrdersIndex",
+            "partition_key": "user_id",
+            "sort_key": "created_at",
+            "projection_type": "ALL"
+          }
+        ],
+        "billing_mode": "PAY_PER_REQUEST"
+      }
+    ],
+    "s3_buckets": [
+      {
+        "name": "ProductImagesBucket",
+        "description": "Product images storage",
+        "versioning": true,
+        "cors_configuration": {
+          "allowed_origins": ["*"],
+          "allowed_methods": ["GET", "PUT", "POST", "DELETE"]
+        }
+      }
+    ]
+  },
+  
+  "authentication_strategy": {
+    "service": "Amazon Cognito",
+    "user_pool_configuration": {
+      "name": "ShoppingCartUserPool",
+      "attributes": [
+        {"name": "email", "type": "String", "required": true},
+        {"name": "username", "type": "String", "required": true}
+      ],
+      "password_policy": {
+        "minimum_length": 8,
+        "require_uppercase": true,
+        "require_lowercase": true,
+        "require_numbers": true,
+        "require_symbols": true
+      }
+    },
+    "user_pool_client": {
+      "name": "ShoppingCartWebClient",
+      "generate_secret": false
+    },
+    "lambda_triggers": [
+      {
+        "trigger": "PostConfirmation",
+        "function": "PostConfirmationFunction",
+        "description": "Sync user to DynamoDB"
+      }
+    ]
+  },
+  
+  "api_gateway_configuration": {
+    "type": "REST_API",
+    "name": "ShoppingCartAPI",
+    "cors_configuration": {
+      "allow_origins": ["*"],
+      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    },
+    "stages": ["dev", "prod"],
+    "throttling_settings": {
+      "rate_limit": 1000,
+      "burst_limit": 2000
+    },
+    "authorization": {
+      "default": "COGNITO_USER_POOLS",
+      "cognito_user_pool": "${ShoppingCartUserPool}"
+    }
+  },
+  
+  "integration_patterns": {
+    "async_processing": {
+      "sqs_queues": [
+        {
+          "name": "CheckoutQueue",
+          "description": "Async checkout processing"
+        }
+      ],
+      "sns_topics": [
+        {
+          "name": "OrderNotificationsTopic",
+          "description": "Order status notifications"
+        }
+      ]
+    },
+    "event_driven_architecture": {
+      "eventbridge": {
+        "event_buses": [
+          {
+            "name": "PaymentEventBus",
+            "description": "Payment events"
+          }
+        ]
+      }
+    },
+    "scheduled_tasks": {
+      "eventbridge_scheduler": [
+        {
+          "name": "DailyCartCleanupSchedule",
+          "description": "Daily cleanup of expired cart items",
+          "schedule_expression": "cron(0 2 * * ? *)",
+          "target": "CleanupExpiredItemsFunction"
+        }
+      ]
+    }
+  },
+  
+  "monitoring_operations": {
+    "cloudwatch_logs": {

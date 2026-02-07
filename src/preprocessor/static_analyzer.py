@@ -91,6 +91,77 @@ def tag_file(source: str, file_path: str) -> List[str]:
     # if "cognito" in lower or "cognitoidentityserviceprovider" in lower:
         # tags.add("Cognito")
     
+    # 文件上传检测
+    file_upload_keywords = [
+        # Python Flask/FastAPI patterns
+        "request.files", "fileupload", "file.save(", "werkzeug.datastructures.filestorage",
+        "uploadfile", "fastapi.uploadfile", "form.file", "multipart/form-data",
+        
+        # Express.js/Node.js patterns
+        "multer", "formidable", "busboy", "multiparty", "express-fileupload",
+        "req.files", "req.file", "upload.single", "upload.array", "upload.fields",
+        
+        # Generic file upload patterns
+        "file upload", "upload file", "image upload", "avatar upload", "document upload",
+        "file_upload", "upload_file", "image_upload", "avatar_upload",
+        
+        # File storage/processing
+        "send_file", "send_from_directory", "static/uploads", "/uploads/",
+        "fs.writefile", "fs.createwritestream", "pipe(fs.createwritestream",
+        
+        # HTTP methods commonly used for file upload
+        "enctype=\"multipart/form-data\"", "enctype='multipart/form-data'",
+        
+        # S3 upload patterns
+        "s3.upload", "s3.putobject", "upload_to_s3", "uploadtos3",
+        "boto3.client('s3')", "boto3.resource('s3')",
+        
+        # Common file extensions in upload context
+        ".save(", ".upload(", "allowed_extensions", "allowed_files",
+        "file_allowed", "check_file_extension"
+    ]
+    
+    if any(keyword in lower for keyword in file_upload_keywords):
+        tags.add("FileUpload")
+    
+    # WebSocket 实时通信检测
+    websocket_keywords = [
+        "websocket", "ws://", "wss://", "socket.io", "socketio",
+        "new websocket", "ws.on(", "wss.on(", "io.on(", 
+        "websockets", "fastapi.websocket", "@app.websocket"
+    ]
+    
+    if any(keyword in lower for keyword in websocket_keywords):
+        tags.add("WebSocket")
+    
+    # 后台任务/异步处理检测
+    async_task_keywords = [
+        # Python patterns
+        "celery", "@celery.task", "@task", "apply_async", "delay(",
+        "rq", "redis-queue", "dramatiq", "huey",
+        
+        # Node.js patterns
+        "bull", "kue", "agenda", "bee-queue",
+        "queue.add(", "job.queue", "background job",
+        
+        # Generic patterns
+        "task queue", "job queue", "async task", "background task",
+        "worker", "job_queue", "task_queue"
+    ]
+    
+    if any(keyword in lower for keyword in async_task_keywords):
+        tags.add("AsyncTask")
+    
+    # 定时任务检测
+    cron_keywords = [
+        "cron", "schedule", "apscheduler", "node-cron", "node-schedule",
+        "setinterval", "crontab", "cronjob", "scheduled task",
+        "@scheduled", "schedule.every"
+    ]
+    
+    if any(keyword in lower for keyword in cron_keywords):
+        tags.add("ScheduledTask")
+    
     return sorted(tags)
 
 
@@ -654,6 +725,71 @@ def extract_dynamodb_info(monolith_root: Path, file_tags: Dict[str, List[str]]) 
     return info
 
 
+def _path_to_domain(path: str) -> str:
+    """
+    从 API 路径推断业务领域（用于复杂度统计）。
+    例如 /api/users -> users, /api/v1/orders -> orders, /items -> items
+    """
+    if not path or not path.strip():
+        return "root"
+    parts = [p for p in path.strip("/").split("/") if p]
+    # 跳过常见前缀
+    skip_prefixes = {"api", "v1", "v2", "v3", "version"}
+    for p in parts:
+        if p.lower() not in skip_prefixes:
+            return p.lower()
+    return parts[0].lower() if parts else "root"
+
+
+def compute_complexity_metrics(
+    entry_points: List[Dict[str, Any]],
+    file_tags: Dict[str, List[str]],
+    symbol_table: List[Dict[str, Any]],
+    dynamodb_info: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    根据静态分析结果计算应用复杂度指标，供 Architect Agent 做模式选择参考。
+    单体应用多为同步架构，无法依赖「异步特征」；端点数、领域数、规模等可作为
+    是否采用 Pattern 5（微服务）或建议迁移后引入异步的依据。
+    """
+    # 端点总数
+    total_entry_points = len(entry_points)
+    # 按路径推断的「领域」分布（用于判断是否多领域、可拆服务）
+    domain_counts: Dict[str, int] = {}
+    for ep in entry_points:
+        path = ep.get("path") or ep.get("path_template") or ""
+        domain = _path_to_domain(path)
+        domain_counts[domain] = domain_counts.get(domain, 0) + 1
+    num_domains = len(domain_counts)
+    entry_points_by_domain = dict(sorted(domain_counts.items(), key=lambda x: -x[1]))
+    # 最大单领域端点数（某一块业务是否特别重）
+    max_entry_points_per_domain = max(domain_counts.values()) if domain_counts else 0
+    # 涉及的路由文件数
+    files_with_routes = len({ep.get("file") for ep in entry_points if ep.get("file")})
+    # 符号表规模（函数/类数量，反映代码规模）
+    num_symbols = len(symbol_table)
+    # 有 tag 的文件数
+    num_tagged_files = len(file_tags)
+    # 全项目 tag 汇总（是否出现 FileUpload / WebSocket / AsyncTask 等）
+    all_tags: Set[str] = set()
+    for tags in file_tags.values():
+        all_tags.update(tags)
+    tags_summary = sorted(all_tags)
+    # DynamoDB 表数量（若有）
+    dynamodb_table_count = 0
+    if dynamodb_info and dynamodb_info.get("used"):
+        dynamodb_table_count = len(dynamodb_info.get("probable_tables") or [])
+    return {
+        "total_entry_points": total_entry_points,
+        "num_domains": num_domains,
+        "entry_points_by_domain": entry_points_by_domain,
+        "max_entry_points_per_domain": max_entry_points_per_domain,
+        "files_with_routes": files_with_routes,
+        "num_symbols": num_symbols,
+        "num_tagged_files": num_tagged_files,
+        "tags_summary": tags_summary,
+        "dynamodb_table_count": dynamodb_table_count,
+    }
 
 
 def run_static_analysis(monolith_root: Path) -> Dict[str, Any]:
@@ -701,12 +837,18 @@ def run_static_analysis(monolith_root: Path) -> Dict[str, Any]:
     # 提取DynamoDB基本信息（表名列表和schema文件位置）
     dynamodb_info = extract_dynamodb_info(monolith_root, file_tags)
 
+    # 计算复杂度指标（端点数、领域数、规模等），供 Architect 做模式选择与迁移机会判断
+    complexity_metrics = compute_complexity_metrics(
+        entry_points, file_tags, symbol_table, dynamodb_info if dynamodb_info["used"] else None
+    )
+
     result = {
         "project_structure": project_structure,
         "entry_points": entry_points,
         "dependency_graph": dependency_graph,
         "file_tags": file_tags,
         "symbol_table": symbol_table,
+        "complexity_metrics": complexity_metrics,
     }
     
     # 只在有配置信息时添加

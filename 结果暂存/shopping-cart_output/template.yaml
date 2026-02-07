@@ -1,0 +1,500 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless shopping cart application infrastructure
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        LOG_LEVEL: INFO
+    Tracing: Active
+  Api:
+    Cors:
+      AllowOrigin: "'*'"
+      AllowHeaders: "'Content-Type,Authorization,X-Cart-ID,X-Correlation-ID'"
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      AllowCredentials: "'true'"
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Deployment environment
+
+  AdminEmail:
+    Type: String
+    Default: admin@example.com
+    Description: Admin email for notifications
+
+Resources:
+  # ========== LAMBDA LAYER ==========
+  CommonUtilitiesLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub ${Environment}-common-utilities
+      Description: Shared utilities for DynamoDB operations, logging, and error handling
+      ContentUri: layers/CommonUtilitiesLayer/
+      CompatibleRuntimes:
+        - python3.12
+      RetentionPolicy: Retain
+
+  # ========== EVENTBRIDGE EVENT BUS ==========
+  PaymentEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub ${Environment}-payment-events
+
+  # ========== S3 BUCKET ==========
+  ProductImagesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Environment}-product-images-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins: ['*']
+            AllowedMethods: [GET, PUT, POST]
+            AllowedHeaders: ['*']
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # ========== DYNAMODB TABLES ==========
+  ProductsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-products
+      AttributeDefinitions:
+        - AttributeName: product_id
+          AttributeType: S
+        - AttributeName: category
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: product_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: CategoryIndex
+          KeySchema:
+            - AttributeName: category
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+
+  CartsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-carts
+      AttributeDefinitions:
+        - AttributeName: cart_id
+          AttributeType: S
+        - AttributeName: product_id
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: added_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: cart_id
+          KeyType: HASH
+        - AttributeName: product_id
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: UserIdIndex
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+            - AttributeName: added_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-users
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: username
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: UsernameIndex
+          KeySchema:
+            - AttributeName: username
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: EmailIndex
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-orders
+      AttributeDefinitions:
+        - AttributeName: order_id
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: order_id
+          KeyType: HASH
+        - AttributeName: user_id
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: UserOrdersIndex
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: StatusIndex
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+
+  # ========== SQS QUEUES ==========
+  CheckoutQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${Environment}-checkout-queue
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 345600
+
+  CheckoutQueueDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${Environment}-checkout-queue-dlq
+      MessageRetentionPeriod: 1209600
+
+  # ========== SNS TOPICS ==========
+  OrderNotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${Environment}-order-notifications
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AdminEmail
+
+  # ========== API GATEWAY ==========
+  ShoppingCartApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub ${Environment}-shopping-cart-api
+      StageName: !Ref Environment
+      Cors: '*'
+      MethodSettings:
+        - HttpMethod: '*'
+          ResourcePath: '/*'
+          MetricsEnabled: true
+          DataTraceEnabled: true
+          LoggingLevel: INFO
+
+  # ========== LAMBDA FUNCTIONS ==========
+  GetProductsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/GetProductsFunction/
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      MemorySize: 128
+      Timeout: 10
+      Description: Retrieve all products from the catalog
+      Environment:
+        Variables:
+          PRODUCTS_TABLE: !Ref ProductsTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ProductsTable
+      Events:
+        ApiGetProducts:
+          Type: Api
+          Properties:
+            Path: /product
+            Method: GET
+            RestApiId: !Ref ShoppingCartApi
+
+  GetProductFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/GetProductFunction/
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      MemorySize: 128
+      Timeout: 10
+      Description: Retrieve a specific product by ID
+      Environment:
+        Variables:
+          PRODUCTS_TABLE: !Ref ProductsTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ProductsTable
+      Events:
+        ApiGetProduct:
+          Type: Api
+          Properties:
+            Path: /product/{product_id}
+            Method: GET
+            RestApiId: !Ref ShoppingCartApi
+
+  ListCartFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/ListCartFunction/
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      MemorySize: 256
+      Timeout: 30
+      Description: List all items in the user's cart
+      Environment:
+        Variables:
+          CARTS_TABLE: !Ref CartsTable
+          PRODUCTS_TABLE: !Ref ProductsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CartsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ProductsTable
+      Events:
+        ApiListCart:
+          Type: Api
+          Properties:
+            Path: /cart
+            Method: GET
+            RestApiId: !Ref ShoppingCartApi
+
+  AddToCartFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/AddToCartFunction/
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      MemorySize: 256
+      Timeout: 30
+      Description: Add item to cart
+      Environment:
+        Variables:
+          CARTS_TABLE: !Ref CartsTable
+          PRODUCTS_TABLE: !Ref ProductsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CartsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ProductsTable
+      Events:
+        ApiAddToCart:
+          Type: Api
+          Properties:
+            Path: /cart
+            Method: POST
+            RestApiId: !Ref ShoppingCartApi
+
+  UpdateCartFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/UpdateCartFunction/
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      MemorySize: 256
+      Timeout: 30
+      Description: Update cart item quantity
+      Environment:
+        Variables:
+          CARTS_TABLE: !Ref CartsTable
+          PRODUCTS_TABLE: !Ref ProductsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CartsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ProductsTable
+      Events:
+        ApiUpdateCart:
+          Type: Api
+          Properties:
+            Path: /cart/{product_id}
+            Method: PUT
+            RestApiId: !Ref ShoppingCartApi
+
+  GetCartTotalFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/GetCartTotalFunction/
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      MemorySize: 256
+      Timeout: 30
+      Description: Calculate total for a specific product in cart
+      Environment:
+        Variables:
+          CARTS_TABLE: !Ref CartsTable
+          PRODUCTS_TABLE: !Ref ProductsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CartsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ProductsTable
+      Events:
+        ApiGetCartTotal:
+          Type: Api
+          Properties:
+            Path: /cart/{product_id}/total
+            Method: GET
+            RestApiId: !Ref ShoppingCartApi
+
+  CheckoutCartFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/CheckoutCartFunction/
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      MemorySize: 512
+      Timeout: 60
+      Description: Process cart checkout
+      Environment:
+        Variables:
+          CARTS_TABLE: !Ref CartsTable
+          PRODUCTS_TABLE: !Ref ProductsTable
+          ORDERS_TABLE: !Ref OrdersTable
+          CHECKOUT_QUEUE_URL: !Ref CheckoutQueue
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CartsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ProductsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt CheckoutQueue.QueueName
+      Events:
+        ApiCheckoutCart:
+          Type: Api
+          Properties:
+            Path: /cart/checkout
+            Method: POST
+            RestApiId: !Ref ShoppingCartApi
+
+  # ========== CLOUDWATCH LOG GROUPS ==========
+  GetProductsFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${GetProductsFunction}
+      RetentionInDays: 30
+
+  GetProductFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${GetProductFunction}
+      RetentionInDays: 30
+
+  ListCartFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ListCartFunction}
+      RetentionInDays: 30
+
+  AddToCartFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AddToCartFunction}
+      RetentionInDays: 30
+
+  UpdateCartFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${UpdateCartFunction}
+      RetentionInDays: 30
+
+  GetCartTotalFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${GetCartTotalFunction}
+      RetentionInDays: 30
+
+  CheckoutCartFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${CheckoutCartFunction}
+      RetentionInDays: 90
+
+  # ========== OUTPUTS ==========
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${ShoppingCartApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+
+  ProductsTableName:
+    Description: Products DynamoDB table name
+    Value: !Ref ProductsTable
+
+  CartsTableName:
+    Description: Carts DynamoDB table name
+    Value: !Ref CartsTable
+
+  UsersTableName:
+    Description: Users DynamoDB table name
+    Value: !Ref UsersTable
+
+  OrdersTableName:
+    Description: Orders DynamoDB table name
+    Value: !Ref OrdersTable
+
+  ProductImagesBucketName:
+    Description: Product images S3 bucket name
+    Value: !Ref ProductImagesBucket
+
+  CheckoutQueueUrl:
+    Description: Checkout SQS queue URL
+    Value: !Ref CheckoutQueue
+
+  OrderNotificationsTopicArn:
+    Description: Order notifications SNS topic ARN
+    Value: !Ref OrderNotificationsTopic

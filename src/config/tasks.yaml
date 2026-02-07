@@ -3,52 +3,104 @@ tasks:
     agent: architect
     description: |
       Read storage/analysis_report.json and design a comprehensive serverless
-      application architecture. Output a detailed blueprint.json covering:
+      application architecture using your knowledge base of architecture patterns.
       
-      1. Lambda Architecture:
-         - Lambda functions grouped by domain (user, order, payment, etc.)
-         - ⚠️ EXCLUDE functions handled by Cognito (login, register) - list them in "dropped_functions"
-         - ⚠️ EXCLUDE infrastructure scripts (init_db.py, create_tables.py) - they become SAM resources, not Lambdas
-         - Step Functions for service orchestration (if needed)
-         - Shared Lambda layers for common utilities
+      ⚠️ KNOWLEDGE-DRIVEN DESIGN:
+      Before starting, consult your serverless architecture patterns knowledge base to:
+      1. Identify which of the 5 patterns fits this application best
+      2. Understand which services are truly needed vs nice-to-have
+      3. Avoid common anti-patterns and over-engineering
       
-      2. Data Architecture:
-         - DynamoDB table schemas (directly from analysis_report)
-         - Table relationships and indexes
-         - S3 buckets for object storage (if needed)
+      The 5 patterns to consider:
+      - Pattern 1: Simple REST API (default for most CRUD apps)
+      - Pattern 2: WebSocket Real-time
+      - Pattern 3: Event-Driven Fan-Out
+      - Pattern 4: Workflow Orchestration
+      - Pattern 5: Hybrid Microservices
       
-      3. Authentication Strategy:
-         - Cognito User Pools configuration (if auth detected)
-         - User pool attributes and password policies
-         - Lambda triggers (PostConfirmation, PreAuthentication, etc.)
+      ⚠️ CRITICAL: Generate blueprint in MODULAR STEPS to avoid truncation:
       
-      4. API Gateway Configuration:
-         - API type (REST API or WebSocket API)
-         - For WebSocket: Route keys and Lambda integrations for real-time features
-         - CORS settings
-         - Stages (dev, prod)
-         - Throttling and authorization configuration
+      STEP 1: Create Initial Blueprint Structure
+      Write storage/blueprint.json with basic metadata and empty sections:
+      {
+        "metadata": {
+          "application_name": "...",
+          "architecture_pattern": "Pattern X: ...",
+          "pattern_rationale": "Brief explanation of why this pattern was chosen"
+        },
+        "lambda_architecture": {},
+        "data_architecture": {},
+        "auth_architecture": {},
+        "api_gateway": {},
+        "integration_patterns": {},
+        "monitoring": {},
+        "dropped_functions": []
+      }
       
-      5. Integration Patterns:
-         - Asynchronous processing (SQS, SNS)
-         - Event-driven architecture (EventBridge)
-         - Scheduled tasks (EventBridge Scheduler)
+      STEP 2: Update Lambda Architecture Section
+      Read existing blueprint, update ONLY lambda_architecture section, write back:
+      - Lambda functions grouped by domain (user, order, payment, etc.)
+      - ⚠️ EXCLUDE functions handled by Cognito (login, register) - add to dropped_functions
+      - ⚠️ EXCLUDE infrastructure scripts (init_db.py, create_tables.py)
+      - Shared Lambda layers for common utilities
+      - (Optional) Step Functions ONLY if complex workflows (>3 steps) detected
       
-      6. Monitoring & Operations (RECOMMENDED for production):
-         - CloudWatch Log Groups configuration (retention policies)
-         - CloudWatch Alarms for critical metrics (Lambda errors, API 4XX/5XX, DynamoDB throttles)
+      STEP 3: Update Data Architecture Section
+      Read existing blueprint, update ONLY data_architecture section, write back:
+      - DynamoDB table schemas (from analysis_report.dynamodb_info)
+      - Table relationships and indexes
+      - (Optional) S3 buckets ONLY if file upload detected in analysis_report
       
-      The blueprint should provide a complete migration roadmap without
-      implementation details.
+      STEP 4: Update Auth Architecture Section
+      Read existing blueprint, update ONLY auth_architecture section, write back:
+      - Cognito User Pools configuration (if auth detected)
+      - User pool attributes and password policies
+      - Lambda triggers (PostConfirmation, PreAuthentication, etc.)
+      
+      STEP 5: Update API Gateway Section
+      Read existing blueprint, update ONLY api_gateway section, write back:
+      - API type: REST API (default) or WebSocket API (only if Pattern 2 selected)
+      - CORS settings
+      - Stages (dev, prod)
+      - Throttling and authorization configuration
+      
+      STEP 6: Update Integration Patterns Section (Evidence-Based)
+      Read existing blueprint, update ONLY integration_patterns section if needed:
+      - Consult knowledge base for service selection rules
+      - ✅ Add SQS ONLY if: background jobs, async tasks, or queues detected
+      - ✅ Add SNS ONLY if: fanout to multiple subscribers (<5) detected
+      - ✅ Add EventBridge ONLY if: complex event routing or >3 subscribers detected
+      - ✅ Add Step Functions ONLY if: workflows with >3 dependent steps detected
+      - ❌ If no clear evidence in analysis_report, keep this section minimal or empty
+      - Reference knowledge base anti-patterns to avoid overuse
+      
+      STEP 7: Update Monitoring Section
+      Read existing blueprint, update ONLY monitoring section, write back:
+      - CloudWatch Log Groups configuration
+      - CloudWatch Alarms for critical metrics
+      
+      ⚠️ IMPORTANT: Each step reads the CURRENT blueprint.json, updates ONE section, then writes back.
+      This ensures the final blueprint.json is complete and not truncated.
     expected_output: |
-      A complete blueprint.json file at storage/blueprint.json including:
-      - Lambda architecture (functions, step functions, layers)
-      - Data architecture (DynamoDB, S3)
-      - API Gateway configuration (REST/WebSocket)
-      - Auth architecture (Cognito)
-      - Integration patterns (SQS, SNS, EventBridge)
-      - Monitoring configuration (CloudWatch Alarms, Log Groups)
-      - List of dropped_functions with reasons
+      A complete blueprint.json file at storage/blueprint.json including all sections:
+      
+      - metadata:
+        * application_name
+        * architecture_pattern (which of the 5 patterns was selected)
+        * pattern_rationale (why this pattern was chosen based on analysis)
+      
+      - lambda_architecture (functions, layers, optional step functions)
+      - data_architecture (DynamoDB, optional S3)
+      - api_gateway (REST API or WebSocket based on pattern)
+      - auth_architecture (Cognito if auth detected)
+      - integration_patterns (optional: only if evidence-based need detected)
+      - monitoring (CloudWatch)
+      - dropped_functions (list with reasons)
+      
+      Design Principle: Follow the selected architecture pattern from knowledge base.
+      Start with Pattern 1 (Simple REST) unless analysis shows clear need for other patterns.
+      Add optional services (SQS/SNS/EventBridge/Step Functions) ONLY when analysis 
+      provides clear evidence. Consult knowledge base to avoid anti-patterns.
 
   - id: generate_complete_application
     agent: code_developer

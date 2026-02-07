@@ -1,6 +1,6 @@
-# AWS SAM Reference & Patterns
+# AWS SAM Reference & Patterns (Simplified)
 
-This knowledge base provides standard AWS SAM templates, resource definitions, and policy patterns for the Serverless Migration project.
+This knowledge base provides essential AWS SAM templates, resource definitions, and policy patterns for the Serverless Migration project. This is a simplified version focusing on the most commonly used patterns.
 
 ## 1. Standard SAM Template Structure
 
@@ -12,96 +12,29 @@ Description: Serverless application infrastructure
 
 Globals:
   Function:
-    # Basic Configuration
+    # Basic Configuration (Required)
     Runtime: python3.11  # Adjust based on actual code
-    Handler: index.handler  # Default handler
+    Handler: index.handler
     Timeout: 30  # seconds
     MemorySize: 512  # MB
     
-    # Architecture (cost optimization)
-    Architectures:
-      - arm64  # Use ARM for 34% cost savings
-    
-    # Storage
-    EphemeralStorage:
-      Size: 1024  # MB (512-10240)
-    
-    # Environment Variables (inherited by all functions)
+    # Environment Variables (Common)
     Environment:
       Variables:
         ENVIRONMENT: !Ref Environment
         LOG_LEVEL: INFO
     
-    # Tracing & Monitoring
+    # Monitoring & Tracing (Recommended)
     Tracing: Active  # Enable X-Ray tracing
     
-    # Logging
-    LoggingConfig:
-      LogFormat: JSON
-      ApplicationLogLevel: INFO
-      SystemLogLevel: INFO
-    
-    # Layers (common dependencies)
+    # Shared Layers (Optional)
     Layers:
       - !Ref CommonLayer
     
-    # Deployment
-    AutoPublishAlias: live  # All functions get versioning
-    
-    # Async Configuration
-    EventInvokeConfig:
-      MaximumRetryAttempts: 1
-      MaximumEventAgeInSeconds: 3600
-    
-    # Security
-    ReservedConcurrentExecutions: 100  # Prevent runaway costs
-    RecursiveLoop: Terminate  # Safety for recursive invocations
-    
-    # VPC Configuration (if needed)
-    # VpcConfig:
-    #   SecurityGroupIds:
-    #     - !Ref LambdaSecurityGroup
-    #   SubnetIds:
-    #     - !Ref PrivateSubnet1
-    #     - !Ref PrivateSubnet2
-    
-    # Tags
+    # Tags (Recommended)
     Tags:
       Project: MyProject
       Environment: !Ref Environment
-  
-  # NOTE: Do NOT define Api globals if you're using an explicit AWS::Serverless::Api resource
-  # Globals.Api settings do NOT apply to explicitly defined API resources
-  # Instead, configure CORS and other settings directly in the explicit API resource (see MyApi below)
-  
-  # HttpApi Globals (apply to implicit HTTP APIs)
-  HttpApi:
-    # Auth:
-    #   DefaultAuthorizer: OAuth2Authorizer
-    #   Authorizers:
-    #     OAuth2Authorizer:
-    #       IdentitySource: $request.header.Authorization
-    #       JwtConfiguration:
-    #         issuer: https://auth.example.com
-    #         audience:
-    #           - my-app
-    CorsConfiguration:
-      AllowOrigins:
-        - "https://example.com"
-      AllowHeaders:
-        - "content-type"
-        - "authorization"
-      AllowMethods:
-        - GET
-        - POST
-        - PUT
-        - DELETE
-      MaxAge: 600
-  
-  # SimpleTable Globals
-  SimpleTable:
-    SSESpecification:
-      SSEEnabled: true
 ```
 
 ### Parameters
@@ -115,299 +48,203 @@ Parameters:
 
 ## 2. Resource Patterns
 
-### API Gateway Pattern (REST API)
-**Recommended Strategy:** Define the API resource explicitly to configure StageName and Auth, but **let SAM generate the paths/definitions automatically** from Lambda Events. Avoid manually defining `DefinitionBody` unless you need complex OpenAPI features, as it requires manual permission management.
-
-```yaml
-MyApi:
-  Type: AWS::Serverless::Api
-  Properties:
-    StageName: !Ref Environment
-    # IMPORTANT: Configure CORS here for explicit APIs, NOT in Globals.Api
-    # Globals.Api does NOT apply to explicitly defined AWS::Serverless::Api resources
-    Cors:
-      AllowMethods: "'*'"
-      AllowHeaders: "'*'"
-      AllowOrigin: "'*'"
-    # Do NOT include DefinitionBody here unless you manually handle AWS::Lambda::Permission
-    Auth:
-      DefaultAuthorizer: MyCognitoAuthorizer # Optional
-      Authorizers:
-        MyCognitoAuthorizer:
-          UserPoolArn: !GetAtt UserPool.Arn
-
-# Corresponding Lambda trigger
-# The path and method defined here will be AUTOMATICALLY added to the API above
-Events:
-  ApiEvent:
-    Type: Api
-    Properties:
-      Path: /my-resource
-      Method: POST
-      RestApiId: !Ref MyApi  # Links this Lambda to the explicit API
-```
-
 ### Lambda Function Pattern
 ```yaml
 {LambdaName}Function:
   Type: AWS::Serverless::Function
   Properties:
+    # ========== Required Configuration ==========
     CodeUri: backend/lambdas/{lambda_name}/
-    Handler: handler.lambda_handler  # From actual code
-    Runtime: python3.11  # From file extension
+    Handler: handler.lambda_handler
+    Runtime: python3.11  # python3.11, nodejs20.x, etc.
     
-    # Architecture (x86_64 or arm64)
-    # arm64 (Graviton2) is up to 34% cheaper and 19% faster
-    Architectures:
-      - arm64  # or x86_64 (default)
+    # ========== Common Configuration ==========
+    MemorySize: 512  # 128-10240 MB (affects CPU and cost)
+    Timeout: 30  # seconds (max 900)
     
-    # Memory & Performance
-    MemorySize: 512  # 128-10240 MB
-    Timeout: 30  # seconds
-    
-    # Ephemeral Storage (512 MB - 10 GB)
-    EphemeralStorage:
-      Size: 1024  # MB, default is 512
+    Description: "Function description"  # Optional but recommended
     
     # Environment Variables
     Environment:
       Variables:
-        # Add env vars for all AWS resources this Lambda uses
         TABLE_NAME: !Ref TableName
         QUEUE_URL: !Ref QueueName
         BUCKET_NAME: !Ref BucketName
     
-    # Lambda Function URL (no API Gateway needed)
-    FunctionUrlConfig:
-      AuthType: AWS_IAM  # or NONE for public access
-      Cors:
-        AllowOrigins:
-          - "https://example.com"
-        AllowMethods:
-          - GET
-          - POST
-        AllowHeaders:
-          - "content-type"
-        MaxAge: 300
-      # InvokeMode: BUFFERED (default) or RESPONSE_STREAM
-    
-    # Deployment Strategy (Blue/Green or Canary)
-    AutoPublishAlias: live  # Creates alias that points to latest version
-    DeploymentPreference:
-      Type: Canary10Percent5Minutes  # or Linear10PercentEvery1Minute, AllAtOnce
-      Alarms:
-        - !Ref FunctionErrorAlarm
-      Hooks:
-        PreTraffic: !Ref PreTrafficHookFunction
-        PostTraffic: !Ref PostTrafficHookFunction
-      # TriggerConfigurations:  # for CodeDeploy integrations
-    
-    # Async Invocation Configuration
-    EventInvokeConfig:
-      MaximumRetryAttempts: 1  # 0-2, default is 2
-      MaximumEventAgeInSeconds: 3600  # 60-21600
-      DestinationConfig:
-        OnSuccess:
-          Type: SQS
-          Destination: !GetAtt SuccessQueue.Arn
-        OnFailure:
-          Type: SNS
-          Destination: !Ref FailureTopic
-    
-    # Logging Configuration
-    LoggingConfig:
-      LogFormat: JSON  # Text or JSON
-      ApplicationLogLevel: INFO  # TRACE, DEBUG, INFO, WARN, ERROR, FATAL
-      SystemLogLevel: INFO
-      LogGroup: !Ref CustomLogGroup
-    
-    # Prevent Recursive Loops
-    RecursiveLoop: Terminate  # Terminate or Allow
-    
-    # Reserved Concurrent Executions (limit)
-    ReservedConcurrentExecutions: 5
-    
-    # Provisioned Concurrency (keep warm)
-    ProvisionedConcurrencyConfig:
-      ProvisionedConcurrentExecutions: 5
-    
-    # SnapStart (for Java only - improves cold start)
-    SnapStart:
-      ApplyOn: PublishedVersions
-    
-    # Dead Letter Queue
-    DeadLetterQueue:
-      Type: SQS  # or SNS
-      TargetArn: !GetAtt DLQ.Arn
-    
-    # Layers
+    # Shared Code Layers
     Layers:
       - !Ref CommonLayer
-      - arn:aws:lambda:region:account:layer:layer-name:version
     
-    # POLICY STRATEGY:
-    # 1. Use Connectors (BEST - automatic IAM policies)
-    # 2. Use SAM Policy Templates for standard AWS services
-    # 3. Use Inline Policies for:
-    #    - Services without SAM templates (Comprehend, Textract, Bedrock, etc.)
-    #    - When SAM templates grant excessive permissions (e.g., only need s3:GetObject, not full CRUD)
-    #    - Complex conditional policies
+    # Permission Policies (choose one approach)
     Policies:
-      # SAM Policy Templates (use when available)
+      # Approach 1: SAM Policy Templates (Recommended)
       - DynamoDBCrudPolicy:
           TableName: !Ref TableName
       - SQSSendMessagePolicy:
           QueueName: !GetAtt QueueName.QueueName
       
-      # Inline Policy for granular control or unsupported services
+      # Approach 2: Inline Policy (Fine-grained control)
       - Version: '2012-10-17'
         Statement:
-          # Read-only S3 access (narrower than S3CrudPolicy)
           - Effect: Allow
             Action:
               - s3:GetObject
             Resource: !Sub arn:aws:s3:::${BucketName}/*
           
-          # AI/ML services without SAM templates
+          # AI/ML Services
           - Effect: Allow
             Action:
               - comprehend:DetectSentiment
-              - comprehend:DetectEntities
-            Resource: '*'
-          
-          # X-Ray tracing (if not using Globals.Function.Tracing)
-          - Effect: Allow
-            Action: xray:PutTraceSegments
+              - rekognition:DetectLabels
             Resource: '*'
     
-    # OR use Connectors (Recommended)
-  Connectors:
-    TableConnection:
-      Properties:
-        Destination:
-          Id: TableName
-        Permissions:
-          - Read
-          - Write
-    QueueConnection:
-      Properties:
-        Destination:
-          Id: QueueName
-        Permissions:
-          - Write
+    # ========== Optional Configuration (Specific scenarios) ==========
     
-  Properties:
+    # Concurrency Limits (Prevent cost runaway)
+    ReservedConcurrentExecutions: 100
+    
+    # Version Management (For blue-green deployments)
+    AutoPublishAlias: live
+    
+    # Async Invocation Config (Error handling)
+    EventInvokeConfig:
+      MaximumRetryAttempts: 1
+      DestinationConfig:
+        OnFailure:
+          Type: SQS
+          Destination: !GetAtt DLQ.Arn
+    
+    # Event Triggers
     Events:
-      # From blueprint entry_points
-      ApiEvent1:
-        Type: Api  # or HttpApi
+      # API Trigger
+      ApiEvent:
+        Type: Api
         Properties:
           Path: /api/resource
           Method: GET
-          RestApiId: !Ref MyApi  # Optional: if using explicit API resource
+          RestApiId: !Ref MyApi
       
-      # HTTP API Event
-      HttpApiEvent:
-        Type: HttpApi
-        Properties:
-          Path: /api/resource
-          Method: POST
-          ApiId: !Ref MyHttpApi
-      
-      # Add SQS trigger if Lambda processes queue
+      # SQS Trigger
       QueueEvent:
         Type: SQS
         Properties:
           Queue: !GetAtt QueueName.Arn
           BatchSize: 10
-          MaximumBatchingWindowInSeconds: 5
-          FunctionResponseTypes:
-            - ReportBatchItemFailures  # Partial batch failure handling
       
-      # Add S3 trigger if Lambda processes uploads
+      # S3 Trigger
       S3Event:
         Type: S3
         Properties:
           Bucket: !Ref BucketName
           Events: s3:ObjectCreated:*
-          Filter:
-            S3Key:
-              Rules:
-                - Name: prefix
-                  Value: uploads/
-                - Name: suffix
-                  Value: .jpg
       
-      # Schedule Event
+      # Schedule Trigger
       ScheduleEvent:
         Type: Schedule
         Properties:
-          Schedule: rate(5 minutes)  # or cron(0 12 * * ? *)
-          Description: Run every 5 minutes
-          Enabled: true
+          Schedule: rate(5 minutes)
       
-      # EventBridge Rule
+      # EventBridge Trigger
       EventBridgeEvent:
         Type: EventBridgeRule
         Properties:
+          EventBusName: !Ref EventBus
           Pattern:
             source:
-              - aws.s3
-            detail-type:
-              - Object Created
+              - custom.app
       
-      # DynamoDB Stream
+      # DynamoDB Stream Trigger
       DynamoDBEvent:
         Type: DynamoDB
         Properties:
           Stream: !GetAtt MyTable.StreamArn
           StartingPosition: TRIM_HORIZON
           BatchSize: 100
-          MaximumBatchingWindowInSeconds: 10
+      
+      # SNS Trigger
+      SNSEvent:
+        Type: SNS
+        Properties:
+          Topic: !Ref MyTopic
+```
+
+### API Gateway Pattern (REST API)
+
+**Recommended: Explicitly define API resource, let SAM auto-generate paths**
+
+```yaml
+MyApi:
+  Type: AWS::Serverless::Api
+  Properties:
+    # Required
+    StageName: !Ref Environment
+    
+    # CORS Configuration (Required for frontend apps)
+    Cors:
+      AllowMethods: "'*'"
+      AllowHeaders: "'*'"
+      AllowOrigin: "'*'"
+    
+    # Authentication & Authorization (Optional)
+    Auth:
+      DefaultAuthorizer: MyCognitoAuthorizer
+      Authorizers:
+        MyCognitoAuthorizer:
+          UserPoolArn: !GetAtt UserPool.Arn
+    
+    # Access Logs (Recommended for production)
+    AccessLogSetting:
+      DestinationArn: !GetAtt ApiLogGroup.Arn
+      Format: '$context.requestId $context.error.message'
+    
+    # Request Throttling (Optional)
+    MethodSettings:
+      - ResourcePath: "/*"
+        HttpMethod: "*"
+        ThrottlingBurstLimit: 100
+        ThrottlingRateLimit: 50
+    
+    # X-Ray Tracing (Recommended)
+    TracingEnabled: true
+
+# API Log Group
+ApiLogGroup:
+  Type: AWS::Logs::LogGroup
+  Properties:
+    LogGroupName: !Sub /aws/apigateway/${MyApi}
+    RetentionInDays: 30
 ```
 
 ### DynamoDB Table Pattern
-Strategy: Extract table schemas from ACTUAL SOURCE FILES first.
 
-**Python creation pattern to look for:**
-```python
-dynamodb.create_table(
-    TableName='UsersTable',
-    KeySchema=[
-        {'AttributeName': 'userId', 'KeyType': 'HASH'},
-        {'AttributeName': 'createdAt', 'KeyType': 'RANGE'}
-    ],
-    AttributeDefinitions=[...],
-    GlobalSecondaryIndexes=[...]
-)
-```
-
-**JavaScript creation pattern to look for:**
-```javascript
-await dynamodb.createTable({
-  TableName: 'users-table',
-  KeySchema: [
-    { AttributeName: 'userId', KeyType: 'HASH' }
-  ],
-  AttributeDefinitions: [...],
-  GlobalSecondaryIndexes: [...]
-});
-```
-
-**SAM Resource Output:**
 ```yaml
-UsersTable:
+{TableName}:
   Type: AWS::DynamoDB::Table
+  # ⚠️ Data Protection Policy (Strongly Recommended)
+  # Prevents data loss when stack is deleted
+  DeletionPolicy: Retain
+  UpdateReplacePolicy: Retain
   Properties:
-    TableName: !Sub ${Environment}-users
+    # Required
+    TableName: !Sub ${Environment}-{table-name}
+    
+    # Key Definitions (Required)
     AttributeDefinitions:
       - AttributeName: userId
         AttributeType: S
-      - AttributeName: email
+      - AttributeName: createdAt
         AttributeType: S
+    
     KeySchema:
       - AttributeName: userId
         KeyType: HASH
+      - AttributeName: createdAt
+        KeyType: RANGE
+    
+    # Billing Mode (Pay-per-request recommended)
+    BillingMode: PAY_PER_REQUEST
+    
+    # Global Secondary Indexes (Optional)
     GlobalSecondaryIndexes:
       - IndexName: email-index
         KeySchema:
@@ -415,9 +252,23 @@ UsersTable:
             KeyType: HASH
         Projection:
           ProjectionType: ALL
-    BillingMode: PAY_PER_REQUEST
+    
+    # Streaming (Required for event-driven architecture)
     StreamSpecification:
-      StreamViewType: NEW_AND_OLD_IMAGES  # If event-driven patterns detected
+      StreamViewType: NEW_AND_OLD_IMAGES
+    
+    # Server-side Encryption (Recommended)
+    SSESpecification:
+      SSEEnabled: true
+    
+    # Point-in-time Recovery (Recommended for production)
+    PointInTimeRecoverySpecification:
+      PointInTimeRecoveryEnabled: true
+    
+    # Tags
+    Tags:
+      - Key: Environment
+        Value: !Ref Environment
 ```
 
 ### SQS Queue Pattern
@@ -426,8 +277,8 @@ UsersTable:
   Type: AWS::SQS::Queue
   Properties:
     QueueName: !Sub ${Environment}-{queue-name}
-    VisibilityTimeout: 300
-    MessageRetentionPeriod: 345600
+    VisibilityTimeout: 300  # Should be greater than Lambda timeout
+    MessageRetentionPeriod: 345600  # 4 days
     RedrivePolicy:
       deadLetterTargetArn: !GetAtt {QueueName}DLQ.Arn
       maxReceiveCount: 3
@@ -436,20 +287,19 @@ UsersTable:
   Type: AWS::SQS::Queue
   Properties:
     QueueName: !Sub ${Environment}-{queue-name}-dlq
+    MessageRetentionPeriod: 1209600  # 14 days
 ```
 
 ### SNS Topic Pattern
 
-**Recommended SAM Approach:** Use Lambda Events to auto-create subscription and permission.
-
 ```yaml
-# Define the Topic
 {TopicName}:
   Type: AWS::SNS::Topic
   Properties:
     TopicName: !Sub ${Environment}-{topic-name}
+    DisplayName: "Topic Display Name"
 
-# Subscribe Lambda via Events (SAM auto-creates permission)
+# Lambda Subscription (Auto-created using Events)
 {SubscriberFunction}:
   Type: AWS::Serverless::Function
   Properties:
@@ -459,77 +309,18 @@ UsersTable:
         Type: SNS
         Properties:
           Topic: !Ref {TopicName}
-          FilterPolicy:  # Optional: filter messages
-            eventType:
-              - order.created
 ```
 
-**Alternative (Legacy CloudFormation):** Manual subscription and permission.
-```yaml
-{TopicName}:
-  Type: AWS::SNS::Topic
-  Properties:
-    TopicName: !Sub ${Environment}-{topic-name}
-    Subscription:
-      - Endpoint: !GetAtt SubscriberFunction.Arn
-        Protocol: lambda
+### EventBridge Rule Pattern
 
-{FunctionName}SnsPermission:
-  Type: AWS::Lambda::Permission
-  Properties:
-    FunctionName: !Ref SubscriberFunction
-    Action: lambda:InvokeFunction
-    Principal: sns.amazonaws.com
-    SourceArn: !Ref {TopicName}
-```
-
-### EventBridge Rule Patterns (Detailed)
-
-#### 1. Scheduled Rule (Cron/Rate)
+**1. Scheduled Task**
 ```yaml
 {RuleName}Scheduled:
   Type: AWS::Events::Rule
   Properties:
     Name: !Sub ${Environment}-{rule-name}-schedule
-    Description: Trigger Lambda every 5 minutes
     ScheduleExpression: "rate(5 minutes)"  # or "cron(0 12 * * ? *)"
     State: ENABLED
-    Targets:
-      - Arn: !GetAtt TargetFunction.Arn
-        Id: TargetFunctionV1
-```
-
-#### 2. S3 Event Rule (via CloudTrail) - Recommended for Complex Filtering
-**Prerequisite:** Ensure a CloudTrail exists that logs Data Events for the S3 bucket.
-
-```yaml
-{RuleName}S3Event:
-  Type: AWS::Events::Rule
-  Properties:
-    Name: !Sub ${Environment}-{rule-name}-s3-event
-    Description: Trigger on S3 PutObject with suffix filtering
-    State: ENABLED
-    EventPattern:
-      source:
-        - aws.s3
-      detail-type:
-        - "AWS API Call via CloudTrail"
-      detail:
-        eventSource:
-          - s3.amazonaws.com
-        eventName:
-          - PutObject
-          - CompleteMultipartUpload
-        requestParameters:
-          bucketName:
-            - !Ref BucketName
-          key:
-            # CRITICAL: Suffix/Prefix matching MUST be a list of objects
-            # Incorrect: suffix: ".md"
-            # Correct:   - suffix: ".md"
-            - suffix: ".md"
-            # OR for prefix:
-            # - prefix: "uploads/"
     Targets:
       - Arn: !GetAtt TargetFunction.Arn
         Id: TargetFunctionV1
@@ -540,16 +331,16 @@ UsersTable:
     FunctionName: !Ref TargetFunction
     Action: lambda:InvokeFunction
     Principal: events.amazonaws.com
-    SourceArn: !GetAtt {RuleName}S3Event.Arn
+    SourceArn: !GetAtt {RuleName}Scheduled.Arn
 ```
 
-#### 3. Standard Pattern Matching Rules
-Use when matching exact values or multiple possible values.
-
+**2. Custom Events**
 ```yaml
 {RuleName}Pattern:
   Type: AWS::Events::Rule
   Properties:
+    Name: !Sub ${Environment}-{rule-name}
+    EventBusName: !Ref EventBus
     EventPattern:
       source:
         - "my.custom.app"
@@ -557,25 +348,48 @@ Use when matching exact values or multiple possible values.
         - "OrderPlaced"
       detail:
         status: 
-          - "created"   # Matches exact string
-          - "pending"   # OR matches "pending"
-        amount:
-          - numeric: [">", 100]  # Numeric matching
+          - "created"
+    State: ENABLED
+    Targets:
+      - Arn: !GetAtt TargetFunction.Arn
+        Id: TargetFunctionV1
 ```
 
 ### S3 Bucket Pattern
 ```yaml
 {BucketName}:
   Type: AWS::S3::Bucket
+  # ⚠️ Data Protection Policy (Strongly Recommended)
+  # Prevents data loss when stack is deleted
+  DeletionPolicy: Retain
+  UpdateReplacePolicy: Retain
   Properties:
     BucketName: !Sub ${Environment}-{bucket-name}
+    
+    # Security Configuration (Recommended)
     PublicAccessBlockConfiguration:
       BlockPublicAcls: true
       BlockPublicPolicy: true
-    CorsConfiguration:  # If frontend uploads
+      IgnorePublicAcls: true
+      RestrictPublicBuckets: true
+    
+    # CORS Configuration (Required for frontend uploads)
+    CorsConfiguration:
       CorsRules:
-        - AllowedOrigins: ["*"]
+        - AllowedOrigins: ["https://example.com"]
           AllowedMethods: [GET, PUT, POST]
+          AllowedHeaders: ["*"]
+    
+    # Versioning (Recommended, allows recovery of deleted files)
+    VersioningConfiguration:
+      Status: Enabled
+    
+    # Lifecycle Rules (Optional)
+    LifecycleConfiguration:
+      Rules:
+        - Id: DeleteOldFiles
+          Status: Enabled
+          ExpirationInDays: 90
 ```
 
 ### Step Functions Pattern
@@ -583,772 +397,373 @@ Use when matching exact values or multiple possible values.
 {WorkflowName}StateMachine:
   Type: AWS::Serverless::StateMachine
   Properties:
-    DefinitionUri: backend/statemachines/{workflow}.asl.json
+    Name: !Sub ${Environment}-{workflow-name}
+    DefinitionUri: statemachines/{workflow}.asl.json
     DefinitionSubstitutions:
       Function1Arn: !GetAtt Function1.Arn
       TableName: !Ref TableName
+    
+    # Required: Permission Policies
     Policies:
       - LambdaInvokePolicy:
           FunctionName: !Ref Function1
       - DynamoDBCrudPolicy:
           TableName: !Ref TableName
+    
+    # Optional: Event Triggers
+    Events:
+      EventBridgeTrigger:
+        Type: EventBridgeRule
+        Properties:
+          EventBusName: !Ref EventBus
+          Pattern:
+            source:
+              - custom.app
 ```
 
 ### Lambda Layer Pattern
 ```yaml
 CommonLayer:
   Type: AWS::Serverless::LayerVersion
+  # ⚠️ Optional: Retain layer versions to avoid breaking dependent Lambdas
+  DeletionPolicy: Retain
   Properties:
-    LayerName: common-utils
-    ContentUri: backend/layers/common_utils/
+    LayerName: !Sub ${Environment}-common-dependencies
+    Description: Shared dependencies
+    ContentUri: layers/common/
     CompatibleRuntimes:
       - python3.11
+      - python3.10
+    RetentionPolicy: Retain  # Retain old versions (Lambda property)
 ```
 
-### HTTP API Pattern (AWS::Serverless::HttpApi)
-**Use Case:** When you need lower latency and cost compared to REST API. HTTP APIs are simpler and up to 71% cheaper.
+### WebSocket API Pattern
 
 ```yaml
-MyHttpApi:
-  Type: AWS::Serverless::HttpApi
+WebSocketApi:
+  Type: AWS::ApiGatewayV2::Api
+  Properties:
+    Name: !Sub ${Environment}-websocket-api
+    ProtocolType: WEBSOCKET
+    RouteSelectionExpression: "$request.body.action"
+
+# Connect Route
+ConnectRoute:
+  Type: AWS::ApiGatewayV2::Route
+  Properties:
+    ApiId: !Ref WebSocketApi
+    RouteKey: $connect
+    AuthorizationType: NONE
+    Target: !Join ['/', ['integrations', !Ref ConnectInteg]]
+
+ConnectInteg:
+  Type: AWS::ApiGatewayV2::Integration
+  Properties:
+    ApiId: !Ref WebSocketApi
+    IntegrationType: AWS_PROXY
+    IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OnConnectFunction.Arn}/invocations
+
+# Disconnect Route
+DisconnectRoute:
+  Type: AWS::ApiGatewayV2::Route
+  Properties:
+    ApiId: !Ref WebSocketApi
+    RouteKey: $disconnect
+    Target: !Join ['/', ['integrations', !Ref DisconnectInteg]]
+
+DisconnectInteg:
+  Type: AWS::ApiGatewayV2::Integration
+  Properties:
+    ApiId: !Ref WebSocketApi
+    IntegrationType: AWS_PROXY
+    IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OnDisconnectFunction.Arn}/invocations
+
+# Deployment
+Deployment:
+  Type: AWS::ApiGatewayV2::Deployment
+  DependsOn:
+    - ConnectRoute
+    - DisconnectRoute
+  Properties:
+    ApiId: !Ref WebSocketApi
+
+Stage:
+  Type: AWS::ApiGatewayV2::Stage
   Properties:
     StageName: !Ref Environment
-    # CORS Configuration
-    CorsConfiguration:
-      AllowOrigins:
-        - "https://example.com"
-        - "http://localhost:3000"
-      AllowHeaders:
-        - "content-type"
-        - "authorization"
-      AllowMethods:
-        - GET
-        - POST
-        - PUT
-        - DELETE
-      MaxAge: 3600
-      AllowCredentials: true
-    
-    # Authentication (optional)
-    Auth:
-      Authorizers:
-        MyJWTAuthorizer:
-          IdentitySource: $request.header.Authorization
-          JwtConfiguration:
-            issuer: https://cognito-idp.{region}.amazonaws.com/{userPoolId}
-            audience:
-              - !Ref UserPoolClient
-      DefaultAuthorizer: MyJWTAuthorizer
-    
-    # Custom Domain (optional)
-    Domain:
-      DomainName: api.example.com
-      CertificateArn: !Ref ApiCertificate
-      Route53:
-        HostedZoneId: !Ref HostedZone
-    
-    # Access Logging
-    AccessLogSettings:
-      DestinationArn: !GetAtt ApiLogGroup.Arn
-      Format: '$context.requestId $context.error.message $context.error.messageString'
+    DeploymentId: !Ref Deployment
+    ApiId: !Ref WebSocketApi
 
-# Lambda with HTTP API Event
-MyFunction:
-  Type: AWS::Serverless::Function
+# Lambda Permissions
+OnConnectPermission:
+  Type: AWS::Lambda::Permission
   Properties:
-    # ... function properties ...
-    Events:
-      HttpApiEvent:
-        Type: HttpApi
-        Properties:
-          Path: /users/{id}
-          Method: GET
-          ApiId: !Ref MyHttpApi  # Link to explicit HTTP API
-          # Auth override (optional)
-          Auth:
-            Authorizer: NONE  # Make this endpoint public
+    Action: lambda:InvokeFunction
+    FunctionName: !Ref OnConnectFunction
+    Principal: apigateway.amazonaws.com
 ```
 
-### GraphQL API Pattern (AWS::Serverless::GraphQLApi)
-**Use Case:** Build GraphQL APIs with AWS AppSync with simplified configuration.
+## 3. Monitoring Patterns
+
+### CloudWatch Alarms
+```yaml
+# Lambda Error Alarm
+LambdaErrorAlarm:
+  Type: AWS::CloudWatch::Alarm
+  Properties:
+    AlarmName: !Sub ${FunctionName}-errors
+    AlarmDescription: Lambda function errors
+    ComparisonOperator: GreaterThanThreshold
+    EvaluationPeriods: 1
+    MetricName: Errors
+    Namespace: AWS/Lambda
+    Period: 60
+    Statistic: Sum
+    Threshold: 0
+    Dimensions:
+      - Name: FunctionName
+        Value: !Ref FunctionName
+    AlarmActions:
+      - !Ref AlarmTopic
+
+# API Gateway Error Alarm
+ApiErrorAlarm:
+  Type: AWS::CloudWatch::Alarm
+  Properties:
+    AlarmName: !Sub ${ApiName}-5xx-errors
+    ComparisonOperator: GreaterThanThreshold
+    EvaluationPeriods: 2
+    MetricName: 5XXError
+    Namespace: AWS/ApiGateway
+    Period: 60
+    Statistic: Sum
+    Threshold: 5
+    Dimensions:
+      - Name: ApiName
+        Value: !Ref MyApi
+    AlarmActions:
+      - !Ref AlarmTopic
+
+# DynamoDB Throttling Alarm
+DynamoThrottleAlarm:
+  Type: AWS::CloudWatch::Alarm
+  Properties:
+    AlarmName: !Sub ${TableName}-throttles
+    ComparisonOperator: GreaterThanThreshold
+    EvaluationPeriods: 1
+    Metrics:
+      - Id: throttles
+        Expression: m1+m2
+      - Id: m1
+        MetricStat:
+          Metric:
+            Namespace: AWS/DynamoDB
+            MetricName: UserErrors
+            Dimensions:
+              - Name: TableName
+                Value: !Ref TableName
+          Period: 60
+          Stat: Sum
+        ReturnData: false
+      - Id: m2
+        MetricStat:
+          Metric:
+            Namespace: AWS/DynamoDB
+            MetricName: SystemErrors
+            Dimensions:
+              - Name: TableName
+                Value: !Ref TableName
+          Period: 60
+          Stat: Sum
+        ReturnData: false
+    Threshold: 0
+    AlarmActions:
+      - !Ref AlarmTopic
+```
+
+### CloudWatch Log Groups
+```yaml
+FunctionLogGroup:
+  Type: AWS::Logs::LogGroup
+  Properties:
+    LogGroupName: !Sub /aws/lambda/${FunctionName}
+    RetentionInDays: 30  # 7, 14, 30, 60, 90, 120, 180, 365, ...
+
+ApiLogGroup:
+  Type: AWS::Logs::LogGroup
+  Properties:
+    LogGroupName: !Sub /aws/apigateway/${ApiName}
+    RetentionInDays: 30
+```
+
+### SNS Alarm Topic
+```yaml
+AlarmTopic:
+  Type: AWS::SNS::Topic
+  Properties:
+    TopicName: !Sub ${Environment}-alarms
+    Subscription:
+      - Protocol: email
+        Endpoint: alerts@example.com
+```
+
+## 4. Cognito Pattern
 
 ```yaml
-MyGraphQLApi:
-  Type: AWS::Serverless::GraphQLApi
+UserPool:
+  Type: AWS::Cognito::UserPool
+  # ⚠️ Data Protection Policy (Strongly Recommended)
+  # Prevents data loss when stack is deleted
+  DeletionPolicy: Retain
+  UpdateReplacePolicy: Retain
   Properties:
-    Name: !Sub ${Environment}-my-graphql-api
+    UserPoolName: !Sub ${Environment}-users
     
-    # GraphQL Schema (inline or URI)
-    SchemaInline: |
-      type Query {
-        getUser(id: ID!): User
-        listUsers: [User]
-      }
-      type Mutation {
-        createUser(name: String!, email: String!): User
-      }
-      type User {
-        id: ID!
-        name: String!
-        email: String!
-      }
-    # OR use SchemaUri: backend/schema.graphql
+    # Auto Verification
+    AutoVerifiedAttributes:
+      - email
     
-    # Authentication
-    Auth:
-      Type: AWS_IAM  # or AMAZON_COGNITO_USER_POOLS, API_KEY, OPENID_CONNECT
-      # For Cognito:
-      # UserPool:
-      #   UserPoolId: !Ref UserPool
-      #   AwsRegion: !Ref AWS::Region
-      #   DefaultAction: ALLOW
+    # User Attributes
+    Schema:
+      - Name: email
+        Required: true
+        Mutable: false
     
-    # Data Sources
-    DataSources:
-      DynamoDB:
-        UsersTable:
-          TableName: !Ref UsersTable
-          TableArn: !GetAtt UsersTable.Arn
-      Lambda:
-        CreateUserFunction:
-          FunctionArn: !GetAtt CreateUserFunction.Arn
+    # Password Policy
+    Policies:
+      PasswordPolicy:
+        MinimumLength: 8
+        RequireUppercase: true
+        RequireLowercase: true
+        RequireNumbers: true
+        RequireSymbols: false
     
-    # Resolvers
-    Functions:
-      getUserFunction:
-        Runtime:
-          Name: APPSYNC_JS
-          Version: 1.0.0
-        DataSource: UsersTable
-        CodeUri: backend/resolvers/getUser.js
-    
-    Resolvers:
-      Query:
-        getUser:
-          Runtime:
-            Name: APPSYNC_JS
-            Version: 1.0.0
-          Pipeline:
-            - getUserFunction
-      Mutation:
-        createUser:
-          Runtime:
-            Name: APPSYNC_JS
-            Version: 1.0.0
-          DataSource: CreateUserFunction
-    
-    # Caching (optional)
-    Cache:
-      Type: T2_SMALL
-      Ttl: 3600
-    
-    # Logging
-    Logging:
-      FieldLogLevel: ALL  # NONE, ERROR, ALL
-      CloudWatchLogsRoleArn: !GetAtt GraphQLApiLogsRole.Arn
-    
-    # X-Ray Tracing
-    XrayEnabled: true
-    
-    Tags:
-      Environment: !Ref Environment
+    # MFA Configuration (Optional)
+    MfaConfiguration: OPTIONAL
 
-# IAM Role for GraphQL API Logging
-GraphQLApiLogsRole:
-  Type: AWS::IAM::Role
+UserPoolClient:
+  Type: AWS::Cognito::UserPoolClient
   Properties:
-    AssumeRolePolicyDocument:
-      Version: '2012-10-17'
-      Statement:
-        - Effect: Allow
-          Principal:
-            Service: appsync.amazonaws.com
-          Action: sts:AssumeRole
-    ManagedPolicyArns:
-      - arn:aws:iam::aws:policy/service-role/AWSAppSyncPushToCloudWatchLogs
+    UserPoolId: !Ref UserPool
+    ClientName: !Sub ${Environment}-client
+    GenerateSecret: false
+    ExplicitAuthFlows:
+      - ALLOW_USER_PASSWORD_AUTH
+      - ALLOW_REFRESH_TOKEN_AUTH
+
+# Identity Pool (Federated Identities, Optional)
+IdentityPool:
+  Type: AWS::Cognito::IdentityPool
+  # ⚠️ Data Protection Policy
+  DeletionPolicy: Retain
+  UpdateReplacePolicy: Retain
+  Properties:
+    IdentityPoolName: !Sub ${Environment}Identity
+    AllowUnauthenticatedIdentities: false
+    CognitoIdentityProviders:
+      - ClientId: !Ref UserPoolClient
+        ProviderName: !GetAtt UserPool.ProviderName
 ```
 
-### Connector Pattern (AWS::Serverless::Connector)
-**Recommended Approach:** Use Connectors to automatically manage IAM permissions between resources. Connectors are AWS's recommended first choice for permission management.
+## 5. Output Definitions
 
-**Embedded Connector (Recommended):**
-```yaml
-# Example 1: Lambda reads from DynamoDB
-MyFunction:
-  Type: AWS::Serverless::Function
-  Properties:
-    # ... function properties ...
-  Connectors:
-    MyConn:
-      Properties:
-        Destination:
-          Id: MyTable
-        Permissions:
-          - Read
-
-# Example 2: Lambda writes to SQS and reads from S3
-ProcessorFunction:
-  Type: AWS::Serverless::Function
-  Properties:
-    # ... function properties ...
-  Connectors:
-    SQSConnection:
-      Properties:
-        Destination:
-          Id: MyQueue
-        Permissions:
-          - Write
-    S3Connection:
-      Properties:
-        Destination:
-          Id: MyBucket
-        Permissions:
-          - Read
-
-# Example 3: API Gateway invokes Lambda
-MyApi:
-  Type: AWS::Serverless::Api
-  Properties:
-    # ... API properties ...
-  Connectors:
-    ApiToFunction:
-      Properties:
-        Destination:
-          Id: MyFunction
-        Permissions:
-          - Write  # API Gateway needs Write to invoke Lambda
-```
-
-**Standalone Connector:**
-```yaml
-# When you need to connect existing resources
-MyConnector:
-  Type: AWS::Serverless::Connector
-  Properties:
-    Source:
-      Id: SourceFunction
-    Destination:
-      Id: TargetTable
-    Permissions:
-      - Read
-      - Write
-```
-
-**Supported Permissions:**
-- `Read` - Grants read/receive/get permissions
-- `Write` - Grants write/send/invoke permissions
-
-**Supported Resource Types:**
-- Lambda Function
-- API Gateway (REST & HTTP)
-- Step Functions State Machine
-- DynamoDB Table
-- SQS Queue
-- SNS Topic
-- S3 Bucket
-- EventBridge Event Bus
-- AppSync GraphQL API
-- And more...
-
-**Benefits:**
-- No need to write IAM policies manually
-- Automatically scopes permissions to least privilege
-- SAM handles all IAM role and policy creation
-- Easier to understand resource relationships
-- Reduces security misconfigurations
-
-## 3. Output Definitions
 ```yaml
 Outputs:
-  ApiEndpoint:
-    Description: API Gateway endpoint
-    # CRITICAL: Must reference the explicitly defined API resource name from Resource Patterns (e.g., MyApi)
-    # DO NOT use ServerlessRestApi (SAM's implicit logical ID), or CloudFormation will report resource not found
-    # Stage name (${Environment}) must match the StageName property in MyApi definition
+  # API URL
+  ApiUrl:
+    Description: API Gateway endpoint URL
     Value: !Sub "https://${MyApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
     Export:
       Name: !Sub ${AWS::StackName}-ApiUrl
   
-  # Export all resource ARNs/names that frontend might need
-  {TableName}Name:
-    Value: !Ref {TableName}
+  # WebSocket URL
+  WebSocketUrl:
+    Description: WebSocket API endpoint
+    Value: !Sub "wss://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
   
-  UserPoolId:
-    Value: !Ref UserPool
-    Condition: HasCognito
-```
-
-## 4. Cognito Template (Optional)
-If blueprint.auth_architecture.strategy == "Cognito User Pools":
-
-```yaml
-AWSTemplateFormatVersion: '2010-09-09'
-
-Resources:
-  UserPool:
-    Type: AWS::Cognito::UserPool
-    Properties:
-      UserPoolName: !Sub ${Environment}-users
-      AutoVerifiedAttributes:
-        - email
-      Schema:
-        - Name: email
-          Required: true
-      Policies:
-        PasswordPolicy:
-          MinimumLength: 8
-          RequireUppercase: true
-          RequireLowercase: true
-          RequireNumbers: true
-      MfaConfiguration: OPTIONAL  # From blueprint
+  # Table Name
+  TableName:
+    Description: DynamoDB table name
+    Value: !Ref MyTable
+    Export:
+      Name: !Sub ${AWS::StackName}-TableName
   
-  UserPoolClient:
-    Type: AWS::Cognito::UserPoolClient
-    Properties:
-      UserPoolId: !Ref UserPool
-      GenerateSecret: false
-      ExplicitAuthFlows:
-        - ALLOW_USER_PASSWORD_AUTH
-        - ALLOW_REFRESH_TOKEN_AUTH
-
-Outputs:
+  # Queue URL
+  QueueUrl:
+    Description: SQS queue URL
+    Value: !Ref MyQueue
+  
+  # UserPool ID
   UserPoolId:
+    Description: Cognito User Pool ID
     Value: !Ref UserPool
     Export:
       Name: !Sub ${AWS::StackName}-UserPoolId
-  UserPoolClientId:
-    Value: !Ref UserPoolClient
-    Export:
-      Name: !Sub ${AWS::StackName}-UserPoolClientId
-```
-
-## 5. Deployment Parameters File
-`output/infrastructure/parameters.json`:
-```json
-{
-  "Parameters": {
-    "Environment": "dev"
-  }
-}
 ```
 
 ## 6. SAM Policy Templates Reference
 
-### Available SAM Policy Templates
-Common SAM policy templates to use for `Policies` property (89 total available, listing most commonly used):
+### Most Commonly Used Policy Templates (By actual usage frequency)
 
-#### Database & Storage
-- `DynamoDBCrudPolicy`: Full CRUD on specific table
-  ```yaml
-  - DynamoDBCrudPolicy:
-      TableName: !Ref MyTable
-  ```
-- `DynamoDBReadPolicy`: Read-only access to table
-- `DynamoDBWritePolicy`: Write-only access to table
-- `DynamoDBStreamReadPolicy`: Read from DynamoDB streams
-- `DynamoDBBackupFullAccessPolicy`: Create/delete backups
-- `DynamoDBReconfigurePolicy`: Update table configuration
-- `S3CrudPolicy`: Full CRUD on bucket
-  ```yaml
-  - S3CrudPolicy:
-      BucketName: !Ref MyBucket
-  ```
-- `S3ReadPolicy`: Read-only access to bucket
-- `S3WritePolicy`: Write-only access to bucket
-- `S3FullAccessPolicy`: Complete S3 operations including tagging
-- `EFSWriteAccessPolicy`: Mount EFS with write access
+#### Database
+- `DynamoDBCrudPolicy` - Full DynamoDB operations
+- `DynamoDBReadPolicy` - DynamoDB read-only
+- `DynamoDBStreamReadPolicy` - Read DynamoDB streams
 
-#### Messaging & Events
-- `SQSSendMessagePolicy`: Send messages to queue
-  ```yaml
-  - SQSSendMessagePolicy:
-      QueueName: !GetAtt MyQueue.QueueName
-  ```
-- `SQSPollerPolicy`: Read/delete from queue
-- `SNSPublishMessagePolicy`: Publish to SNS topic
-- `SNSCrudPolicy`: Create, publish, subscribe to topics
-- `EventBridgePutEventsPolicy`: Put events to EventBridge
-  ```yaml
-  - EventBridgePutEventsPolicy:
-      EventBusName: default
-  ```
-- `KinesisCrudPolicy`: Full CRUD on Kinesis stream
-- `KinesisStreamReadPolicy`: Read-only access to stream
-- `FirehoseCrudPolicy`: Full CRUD on Firehose stream
-- `FirehoseWritePolicy`: Write-only access to Firehose
+#### Storage
+- `S3CrudPolicy` - Full S3 operations
+- `S3ReadPolicy` - S3 read-only
+- `S3WritePolicy` - S3 write-only
 
-#### Compute & Orchestration
-- `LambdaInvokePolicy`: Invoke another Lambda
-  ```yaml
-  - LambdaInvokePolicy:
-      FunctionName: !Ref TargetFunction
-  ```
-- `StepFunctionsExecutionPolicy`: Start Step Functions executions
-  ```yaml
-  - StepFunctionsExecutionPolicy:
-      StateMachineName: !GetAtt MyStateMachine.Name
-  ```
-- `EcsRunTaskPolicy`: Run ECS tasks
+#### Message Queues
+- `SQSSendMessagePolicy` - Send SQS messages
+- `SQSPollerPolicy` - Read and delete from SQS
+- `SNSPublishMessagePolicy` - Publish SNS messages
 
-#### Security & Secrets
-- `AWSSecretsManagerGetSecretValuePolicy`: Get secret value
-  ```yaml
-  - AWSSecretsManagerGetSecretValuePolicy:
-      SecretArn: !Ref MySecret
-  ```
-- `AWSSecretsManagerRotationPolicy`: Rotate secrets
-- `SSMParameterReadPolicy`: Read SSM parameters
-  ```yaml
-  - SSMParameterReadPolicy:
-      ParameterName: /myapp/config
-  ```
-- `SSMParameterWithSlashPrefixReadPolicy`: Read SSM with slash prefix
-- `KMSDecryptPolicy`: Decrypt with KMS key
-- `KMSEncryptPolicy`: Encrypt with KMS key
+#### Events
+- `EventBridgePutEventsPolicy` - Send EventBridge events
 
-#### AI/ML Services
-- `ComprehendBasicAccessPolicy`: Detect entities, sentiment, language
-  ```yaml
-  - ComprehendBasicAccessPolicy: {}
-  ```
-- `RekognitionDetectOnlyPolicy`: Detect faces, labels, text
-- `RekognitionLabelsPolicy`: Detect object and moderation labels
-- `RekognitionFacesPolicy`: Compare and detect faces
-- `RekognitionFacesManagementPolicy`: Add/delete/search faces in collection
-- `RekognitionReadPolicy`: List and search faces
-- `RekognitionWriteOnlyAccessPolicy`: Create collection and index faces
-- `TextractDetectAnalyzePolicy`: Detect and analyze documents
-  ```yaml
-  - TextractDetectAnalyzePolicy: {}
-  ```
-- `TextractGetResultPolicy`: Get detection/analysis results
-- `TextractPolicy`: Full Textract access
-- `PollyFullAccessPolicy`: Full Amazon Polly access
-- `SageMakerCreateEndpointPolicy`: Create SageMaker endpoints
-- `SageMakerCreateEndpointConfigPolicy`: Create endpoint configs
+#### Compute
+- `LambdaInvokePolicy` - Invoke other Lambdas
+- `StepFunctionsExecutionPolicy` - Start Step Functions
 
-#### Analytics & Monitoring
-- `AthenaQueryPolicy`: Execute Athena queries
-  ```yaml
-  - AthenaQueryPolicy:
-      WorkGroupName: primary
-  ```
-- `CloudWatchPutMetricPolicy`: Send metrics to CloudWatch
-  ```yaml
-  - CloudWatchPutMetricPolicy: {}
-  ```
-- `CloudWatchDashboardPolicy`: Operate on CloudWatch dashboards
-- `CloudWatchDescribeAlarmHistoryPolicy`: Describe alarm history
-- `FilterLogEventsPolicy`: Filter CloudWatch Logs events
-  ```yaml
-  - FilterLogEventsPolicy:
-      LogGroupName: /aws/lambda/myfunction
-  ```
+#### Security
+- `AWSSecretsManagerGetSecretValuePolicy` - Get Secrets Manager secrets
+- `SSMParameterReadPolicy` - Read SSM parameters
 
-#### Code & CI/CD
-- `CodeCommitCrudPolicy`: Full CRUD on CodeCommit repo
-- `CodeCommitReadPolicy`: Read-only CodeCommit access
-- `CodePipelineLambdaExecutionPolicy`: Report job status to CodePipeline
-- `CodePipelineReadOnlyPolicy`: Read CodePipeline details
-
-#### Network & DNS
-- `Route53ChangeResourceRecordSetsPolicy`: Change Route53 records
-  ```yaml
-  - Route53ChangeResourceRecordSetsPolicy:
-      HostedZoneId: Z1234567890ABC
-  ```
-- `VPCAccessPolicy`: Create/delete/describe network interfaces
-
-#### Other Services
-- `SESCrudPolicy`: Send email and verify identity
-- `SESBulkTemplatedCrudPolicy_v2`: Send templated bulk emails
-- `SESEmailTemplateCrudPolicy`: Manage SES templates
-- `ServerlessRepoReadWriteAccessPolicy`: Create/list SAR applications
-- `ElasticsearchHttpPostPolicy`: POST/PUT to OpenSearch
-- `PinpointEndpointAccessPolicy`: Get/update Pinpoint endpoints
-- `CostExplorerReadOnlyPolicy`: Read Cost Explorer data
-- `CloudFormationDescribeStacksPolicy`: Describe CloudFormation stacks
-- `EKSDescribePolicy`: Describe EKS clusters
-- `OrganizationsListAccountsPolicy`: List AWS Organizations accounts
-
-### When to Use Inline Policies
-
-Use Inline IAM policies instead of (or in addition to) SAM templates when:
-
-1. **SAM template grants excessive permissions**
-   - Example: Only need `s3:GetObject`, but `S3CrudPolicy` grants full CRUD
-   
-2. **Service lacks SAM policy template**
-   - AI/ML Services: Comprehend, Textract, Rekognition, Bedrock, SageMaker
-   - Analytics: Athena, Glue, QuickSight
-   - Other: AppSync, Pinpoint, Location Services
-
-3. **Complex conditional logic required**
-   - Resource-level conditions, IP restrictions, MFA requirements
-
-### Common AI/ML Service Permissions (Inline Policy Examples)
-
+#### AI/ML (Use inline policies)
 ```yaml
 Policies:
   - Version: '2012-10-17'
     Statement:
-      # Amazon Comprehend
+      # Comprehend
       - Effect: Allow
         Action:
           - comprehend:DetectSentiment
           - comprehend:DetectEntities
-          - comprehend:DetectKeyPhrases
         Resource: '*'
       
-      # Amazon Textract
-      - Effect: Allow
-        Action:
-          - textract:AnalyzeDocument
-          - textract:DetectDocumentText
-        Resource: '*'
-      
-      # Amazon Bedrock
-      - Effect: Allow
-        Action:
-          - bedrock:InvokeModel
-        Resource: !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/*
-      
-      # Amazon Rekognition
+      # Rekognition
       - Effect: Allow
         Action:
           - rekognition:DetectLabels
           - rekognition:DetectText
         Resource: '*'
-```
-
-## 7. Permission Management Decision Tree
-
-**Choose your permission strategy based on this priority:**
-
-### 1. Connectors (FIRST CHOICE - Recommended)
-✅ **Use When:**
-- Connecting any supported AWS resources (Lambda, API Gateway, DynamoDB, SQS, SNS, S3, EventBridge, Step Functions, etc.)
-- You want automatic IAM policy generation
-- You need least-privilege permissions without IAM expertise
-
-```yaml
-MyFunction:
-  Type: AWS::Serverless::Function
-  Properties:
-    # ... properties ...
-  Connectors:
-    MyConn:
-      Properties:
-        Destination:
-          Id: MyTable
-        Permissions:
-          - Read
-          - Write
-```
-
-**Benefits:**
-- Zero IAM policy writing
-- Automatically scoped permissions
-- Easy to understand resource relationships
-- AWS managed and updated
-
-### 2. SAM Policy Templates (SECOND CHOICE)
-✅ **Use When:**
-- Connectors don't support your use case
-- You need standard AWS service permissions
-
-```yaml
-Policies:
-  - DynamoDBCrudPolicy:
-      TableName: !Ref MyTable
-  - S3ReadPolicy:
-      BucketName: !Ref MyBucket
-```
-
-**When NOT to use:**
-- You only need subset of permissions (e.g., only `s3:GetObject` not full CRUD)
-- Service has no policy template (see AI/ML services below)
-
-### 3. Inline IAM Policies (LAST RESORT)
-✅ **Use When:**
-- Service lacks both Connector support and Policy Template (AI/ML services)
-- Need granular permissions (subset of what policy template grants)
-- Complex conditions required (IP restrictions, MFA, resource tags)
-
-```yaml
-Policies:
-  - Version: '2012-10-17'
-    Statement:
+      
+      # Textract
       - Effect: Allow
         Action:
-          - s3:GetObject  # Only read, not full CRUD
-        Resource: !Sub arn:aws:s3:::${BucketName}/readonly/*
+          - textract:AnalyzeDocument
+          - textract:DetectDocumentText
+        Resource: '*'
 ```
 
-### 4. Services Requiring Inline Policies
-
-**AI/ML Services** (no policy templates):
-- Amazon Bedrock
-- Amazon SageMaker (most operations)
-- Amazon Kendra
-- Amazon Forecast
-- Amazon Personalize
-- Amazon Translate
-- Amazon Transcribe
-
-**Other Services**:
-- AWS Glue
-- Amazon Athena (beyond basic query)
-- AWS AppConfig
-- Amazon Location Service
-- AWS IoT Core
-- Amazon Timestream
-
-### Example: Complete Permission Strategy
-
-```yaml
-MyProcessingFunction:
-  Type: AWS::Serverless::Function
-  Properties:
-    CodeUri: backend/processor/
-    Handler: app.handler
-    Runtime: python3.11
-    
-    # Strategy 1: Use Connectors (preferred)
-  Connectors:
-    DynamoDBConn:
-      Properties:
-        Destination:
-          Id: ProcessedItemsTable
-        Permissions:
-          - Read
-          - Write
-    SQSConn:
-      Properties:
-        Destination:
-          Id: ProcessingQueue
-        Permissions:
-          - Write
-  
-  Properties:
-    # Strategy 2: Use Policy Templates
-    Policies:
-      # Secrets Manager (has template)
-      - AWSSecretsManagerGetSecretValuePolicy:
-          SecretArn: !Ref ApiKeySecret
-      
-      # S3 Read-only (more granular than S3CrudPolicy)
-      - S3ReadPolicy:
-          BucketName: !Ref InputBucket
-      
-      # Strategy 3: Inline for AI/ML services
-      - Version: '2012-10-17'
-        Statement:
-          # Bedrock (no template available)
-          - Effect: Allow
-            Action:
-              - bedrock:InvokeModel
-            Resource: !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-v2
-          
-          # Comprehend (has template, but using inline for specific actions)
-          - Effect: Allow
-            Action:
-              - comprehend:DetectSentiment
-              - comprehend:DetectPiiEntities
-            Resource: '*'
-```
-
-## 8. SimpleTable vs DynamoDB Table
-
-### When to Use SimpleTable
-Use `AWS::Serverless::SimpleTable` for simple use cases:
-- Single attribute primary key (partition key only)
-- No sort key needed
-- No GSI/LSI required
-- Pay-per-request billing preferred
-
-```yaml
-SimpleUsersTable:
-  Type: AWS::Serverless::SimpleTable
-  Properties:
-    TableName: !Sub ${Environment}-simple-users
-    PrimaryKey:
-      Name: userId
-      Type: String
-    ProvisionedThroughput:
-      ReadCapacityUnits: 5
-      WriteCapacityUnits: 5
-    # If omitted, defaults to PAY_PER_REQUEST
-    Tags:
-      Environment: !Ref Environment
-```
-
-### When to Use DynamoDB Table
-Use `AWS::DynamoDB::Table` for advanced use cases:
-- Composite primary key (partition + sort key)
-- Global Secondary Indexes (GSI)
-- Local Secondary Indexes (LSI)
-- Streams with custom configuration
-- Advanced billing modes
-
-```yaml
-AdvancedUsersTable:
-  Type: AWS::DynamoDB::Table
-  Properties:
-    TableName: !Sub ${Environment}-advanced-users
-    AttributeDefinitions:
-      - AttributeName: userId
-        AttributeType: S
-      - AttributeName: createdAt
-        AttributeType: S
-      - AttributeName: email
-        AttributeType: S
-    KeySchema:
-      - AttributeName: userId
-        KeyType: HASH
-      - AttributeName: createdAt
-        KeyType: RANGE  # Sort key
-    GlobalSecondaryIndexes:
-      - IndexName: email-index
-        KeySchema:
-          - AttributeName: email
-            KeyType: HASH
-        Projection:
-          ProjectionType: ALL
-    BillingMode: PAY_PER_REQUEST
-    StreamSpecification:
-      StreamViewType: NEW_AND_OLD_IMAGES
-    PointInTimeRecoverySpecification:
-      PointInTimeRecoveryEnabled: true
-    SSESpecification:
-      SSEEnabled: true
-      SSEType: KMS
-      KMSMasterKeyId: !Ref TableEncryptionKey
-    Tags:
-      - Key: Environment
-        Value: !Ref Environment
-```
-
-## 9. Complete Modern SAM Template Example
+## 7. Complete Example
 
 ```yaml
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Modern Serverless Application with Connectors
-
-Globals:
-  Function:
-    Runtime: python3.11
-    Architectures:
-      - arm64  # 34% cost savings
-    Timeout: 30
-    MemorySize: 512
-    Tracing: Active
-    LoggingConfig:
-      LogFormat: JSON
-    Environment:
-      Variables:
-        ENVIRONMENT: !Ref Environment
+Description: Serverless REST API with monitoring
 
 Parameters:
   Environment:
@@ -1356,122 +771,186 @@ Parameters:
     Default: dev
     AllowedValues: [dev, staging, prod]
 
+Globals:
+  Function:
+    Runtime: python3.11
+    Handler: index.handler
+    Timeout: 30
+    MemorySize: 512
+    Tracing: Active
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        LOG_LEVEL: INFO
+    Tags:
+      Environment: !Ref Environment
+
 Resources:
-  # HTTP API (cheaper than REST API)
-  MyHttpApi:
-    Type: AWS::Serverless::HttpApi
+  # API
+  MyApi:
+    Type: AWS::Serverless::Api
     Properties:
       StageName: !Ref Environment
-      CorsConfiguration:
-        AllowOrigins:
-          - "https://example.com"
-        AllowMethods:
-          - "*"
-        AllowHeaders:
-          - "*"
-
-  # Lambda with Function URL
+      TracingEnabled: true
+      Cors:
+        AllowOrigin: "'*'"
+        AllowHeaders: "'*'"
+        AllowMethods: "'*'"
+      AccessLogSetting:
+        DestinationArn: !GetAtt ApiLogGroup.Arn
+        Format: '$context.requestId'
+  
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/apigateway/${MyApi}
+      RetentionInDays: 30
+  
+  # Lambda Function
   ApiFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: backend/api/
       Handler: app.handler
-      FunctionUrlConfig:
-        AuthType: NONE  # Public access
-        Cors:
-          AllowOrigins:
-            - "*"
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref DataTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DataTable
       Events:
-        HttpApiEvent:
-          Type: HttpApi
+        GetApi:
+          Type: Api
           Properties:
-            Path: /users/{id}
+            Path: /items
             Method: GET
-            ApiId: !Ref MyHttpApi
-    Connectors:
-      TableConn:
-        Properties:
-          Destination:
-            Id: UsersTable
-          Permissions:
-            - Read
-
+            RestApiId: !Ref MyApi
+  
   # DynamoDB Table
-  UsersTable:
+  DataTable:
     Type: AWS::DynamoDB::Table
+    # ⚠️ Data Protection: Prevents data loss on stack deletion
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
-      TableName: !Sub ${Environment}-users
+      TableName: !Sub ${Environment}-data
+      BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
-        - AttributeName: userId
+        - AttributeName: id
           AttributeType: S
       KeySchema:
-        - AttributeName: userId
+        - AttributeName: id
           KeyType: HASH
-      BillingMode: PAY_PER_REQUEST
-
-  # Processing Function with Connectors
-  ProcessorFunction:
-    Type: AWS::Serverless::Function
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+  
+  # CloudWatch Alarm
+  ApiErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
     Properties:
-      CodeUri: backend/processor/
-      Handler: processor.handler
-      Events:
-        QueueEvent:
-          Type: SQS
-          Properties:
-            Queue: !GetAtt ProcessingQueue.Arn
-            BatchSize: 10
-    Connectors:
-      # Read from input bucket
-      InputBucketConn:
-        Properties:
-          Destination:
-            Id: InputBucket
-          Permissions:
-            - Read
-      # Write to output bucket
-      OutputBucketConn:
-        Properties:
-          Destination:
-            Id: OutputBucket
-          Permissions:
-            - Write
-      # Update DynamoDB
-      TableConn:
-        Properties:
-          Destination:
-            Id: UsersTable
-          Permissions:
-            - Write
+      AlarmName: !Sub ${Environment}-api-errors
+      ComparisonOperator: GreaterThanThreshold
+      EvaluationPeriods: 1
+      MetricName: 5XXError
+      Namespace: AWS/ApiGateway
+      Period: 60
+      Statistic: Sum
+      Threshold: 5
+      Dimensions:
+        - Name: ApiName
+          Value: !Ref MyApi
+      AlarmActions:
+        - !Ref AlarmTopic
+  
+  AlarmTopic:
+    Type: AWS::SNS::Topic
     Properties:
-      Policies:
-        # AI service (no connector support)
-        - ComprehendBasicAccessPolicy: {}
-
-  # SQS Queue
-  ProcessingQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub ${Environment}-processing
-      VisibilityTimeout: 180
-
-  # S3 Buckets
-  InputBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub ${Environment}-input-${AWS::AccountId}
-
-  OutputBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub ${Environment}-output-${AWS::AccountId}
+      Subscription:
+        - Protocol: email
+          Endpoint: alerts@example.com
 
 Outputs:
-  HttpApiUrl:
-    Description: HTTP API URL
-    Value: !Sub "https://${MyHttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
-  
-  FunctionUrl:
-    Description: Lambda Function URL
-    Value: !GetAtt ApiFunctionUrl.FunctionUrl
+  ApiUrl:
+    Value: !Sub "https://${MyApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+  TableName:
+    Value: !Ref DataTable
 ```
+
+### Most Commonly Used Policy Templates (By actual usage frequency)
+
+```yaml
+Policies:
+  # DynamoDB Access (Most Common)
+  - DynamoDBCrudPolicy:
+      TableName: !Ref MyTable
+  
+  # S3 Access
+  - S3CrudPolicy:
+      BucketName: !Ref MyBucket
+  
+  # SQS Send Messages
+  - SQSSendMessagePolicy:
+      QueueName: !GetAtt MyQueue.QueueName
+  
+  # SNS Publish
+  - SNSPublishMessagePolicy:
+      TopicName: !GetAtt MyTopic.TopicName
+  
+  # Step Functions Execution
+  - StepFunctionsExecutionPolicy:
+      StateMachineName: !GetAtt MyStateMachine.Name
+  
+  # Lambda Invocation
+  - LambdaInvokePolicy:
+      FunctionName: !Ref AnotherFunction
+  
+  # Secrets Manager Read
+  - AWSSecretsManagerGetSecretValuePolicy:
+      SecretArn: !Ref MySecret
+  
+  # VPC Access (Required for Lambda in VPC)
+  - VPCAccessPolicy: {}
+  
+  # X-Ray Tracing (Automatically added when Global Tracing: Active)
+  - AWSXRayDaemonWriteAccess
+```
+
+### Policy Decision Tree
+
+```
+Need to access AWS resources?
+├─ Yes → Use SAM Policy Template (Recommended)
+│   ├─ DynamoDB → DynamoDBCrudPolicy
+│   ├─ S3 → S3CrudPolicy
+│   ├─ SQS → SQSSendMessagePolicy
+│   └─ Others → Check list above
+│
+├─ Need custom permissions? → Inline IAM Policy
+│   ```yaml
+│   Policies:
+│     - Version: '2012-10-17'
+│       Statement:
+│         - Effect: Allow
+│           Action: ['dynamodb:GetItem']
+│           Resource: !GetAtt Table.Arn
+│   ```
+│
+└─ Need to reuse across multiple Lambdas? → Create separate IAM Role
+    ```yaml
+    SharedRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument: ...
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+    
+    MyFunction:
+      Type: AWS::Serverless::Function
+      Properties:
+        Role: !GetAtt SharedRole.Arn
+    ```
+```
+
+---
