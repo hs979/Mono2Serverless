@@ -1,0 +1,30 @@
+{
+  "body": null,
+  "headers": {
+    "User-Agent": "TestClient/1.0"
+  },
+  "queryStringParameters": null,
+  "pathParameters": {
+    "filename": "positive-review.txt"
+  },
+  "httpMethod": "GET",
+  "isBase64Encoded": false,
+  "requestContext": {
+    "accountId": "123456789012",
+    "apiId": "test-api-id",
+    "protocol": "HTTP/1.1",
+    "httpMethod": "GET",
+    "path": "/sentiment/{filename}",
+    "stage": "test",
+    "requestId": "test-request-id",
+    "requestTime": "09/Apr/2015:12:34:56 +0000",
+    "requestTimeEpoch": 1428582896000,
+    "identity": {
+      "sourceIp": "127.0.0.1",
+      "userAgent": "TestClient/1.0"
+    }
+  },
+  "resource": "/sentiment/{filename}",
+  "path": "/sentiment/positive-review.txt",
+  "stageVariables": null
+}

@@ -1,0 +1,427 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: File Processing Serverless Application - Converts markdown to HTML and performs sentiment analysis
+
+Globals:
+  Function:
+    Runtime: python3.9
+    Timeout: 30
+    MemorySize: 256
+    Tracing: Active
+    Environment:
+      Variables:
+        LOG_LEVEL: INFO
+    Tags:
+      Project: FileProcessing
+      Environment: !Ref Environment
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment
+
+Resources:
+  # ========== Shared Layer ==========
+  CommonLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub ${Environment}-FileProcessing-CommonLayer
+      Description: Shared utilities and dependencies for File Processing application
+      ContentUri: layers/FileProcessing-CommonLayer/
+      CompatibleRuntimes:
+        - python3.9
+      RetentionPolicy: Retain
+      LicenseInfo: MIT
+
+  # ========== DynamoDB Table ==========
+  SentimentAnalysisTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-sentiment-analysis-table
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: filename
+          AttributeType: S
+      KeySchema:
+        - AttributeName: filename
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: FileProcessing
+
+  # ========== S3 Buckets ==========
+  FileProcessingInputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Environment}-file-processing-input-bucket
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins: ["*"]
+            AllowedMethods: [GET, PUT, POST, DELETE]
+            AllowedHeaders: ["*"]
+      LifecycleConfiguration:
+        Rules:
+          - Id: cleanup-old-files
+            Status: Enabled
+            ExpirationInDays: 30
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: FileProcessing
+
+  FileProcessingOutputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Environment}-file-processing-output-bucket
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins: ["*"]
+            AllowedMethods: [GET]
+            AllowedHeaders: ["*"]
+      LifecycleConfiguration:
+        Rules:
+          - Id: cleanup-old-files
+            Status: Enabled
+            ExpirationInDays: 90
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: FileProcessing
+
+  # ========== Lambda Functions ==========
+  ConvertToHTMLFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${Environment}-FileProcessing-ConvertToHTML
+      Description: Converts markdown files to HTML format
+      CodeUri: lambdas/FileProcessing-ConvertToHTML/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref CommonLayer
+      Environment:
+        Variables:
+          OUTPUT_BUCKET: !Ref FileProcessingOutputBucket
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref FileProcessingOutputBucket
+        - S3ReadPolicy:
+            BucketName: !Ref FileProcessingInputBucket
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: arn:aws:logs:*:*:*
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /files
+            Method: POST
+            RestApiId: !Ref FileProcessingApi
+
+  AnalyzeSentimentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${Environment}-FileProcessing-AnalyzeSentiment
+      Description: Analyzes sentiment of text content
+      CodeUri: lambdas/FileProcessing-AnalyzeSentiment/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref CommonLayer
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - comprehend:DetectSentiment
+                - comprehend:BatchDetectSentiment
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: arn:aws:logs:*:*:*
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /files/{filename}/sentiment
+            Method: POST
+            RestApiId: !Ref FileProcessingApi
+
+  SaveSentimentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${Environment}-FileProcessing-SaveSentiment
+      Description: Saves sentiment analysis results to DynamoDB
+      CodeUri: lambdas/FileProcessing-SaveSentiment/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref CommonLayer
+      Environment:
+        Variables:
+          SENTIMENT_TABLE: !Ref SentimentAnalysisTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SentimentAnalysisTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: arn:aws:logs:*:*:*
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /sentiment/{filename}
+            Method: GET
+            RestApiId: !Ref FileProcessingApi
+
+  # ========== CloudWatch Log Groups for Lambda Functions ==========
+  ConvertToHTMLLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${Environment}-FileProcessing-ConvertToHTML
+      RetentionInDays: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: FileProcessing
+
+  AnalyzeSentimentLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${Environment}-FileProcessing-AnalyzeSentiment
+      RetentionInDays: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: FileProcessing
+
+  SaveSentimentLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${Environment}-FileProcessing-SaveSentiment
+      RetentionInDays: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: FileProcessing
+
+  # ========== API Gateway ==========
+  FileProcessingApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub ${Environment}-FileProcessing-API
+      StageName: !Ref Environment
+      Cors:
+        AllowOrigin: "'*'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        MaxAge: "'86400'"
+      TracingEnabled: true
+      MethodSettings:
+        - HttpMethod: "*"
+          ResourcePath: "/*"
+          ThrottlingRateLimit: 1000
+          ThrottlingBurstLimit: 2000
+          MetricsEnabled: true
+          DataTraceEnabled: true
+      AccessLogSetting:
+        DestinationArn: !GetAtt ApiAccessLogGroup.Arn
+        Format: >
+          {"requestId":"$context.requestId",
+          "ip":"$context.identity.sourceIp",
+          "caller":"$context.identity.caller",
+          "user":"$context.identity.user",
+          "requestTime":"$context.requestTime",
+          "httpMethod":"$context.httpMethod",
+          "resourcePath":"$context.resourcePath",
+          "status":"$context.status",
+          "protocol":"$context.protocol",
+          "responseLength":"$context.responseLength"}
+
+  ApiAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/apigateway/${Environment}-FileProcessing-API
+      RetentionInDays: 30
+
+  # ========== CloudWatch Alarms ==========
+  ConvertToHTMLHighErrorRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Environment}-FileProcessing-ConvertToHTML-HighErrorRate
+      AlarmDescription: High error rate for ConvertToHTML Lambda function
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Sub ${Environment}-FileProcessing-ConvertToHTML
+      AlarmActions:
+        - !Ref FileProcessingAlertsTopic
+
+  ConvertToHTMLHighLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Environment}-FileProcessing-ConvertToHTML-HighLatency
+      AlarmDescription: High latency for ConvertToHTML Lambda function
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 10000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Sub ${Environment}-FileProcessing-ConvertToHTML
+      AlarmActions:
+        - !Ref FileProcessingAlertsTopic
+
+  AnalyzeSentimentHighErrorRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Environment}-FileProcessing-AnalyzeSentiment-HighErrorRate
+      AlarmDescription: High error rate for AnalyzeSentiment Lambda function
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Sub ${Environment}-FileProcessing-AnalyzeSentiment
+      AlarmActions:
+        - !Ref FileProcessingAlertsTopic
+
+  AnalyzeSentimentHighLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Environment}-FileProcessing-AnalyzeSentiment-HighLatency
+      AlarmDescription: High latency for AnalyzeSentiment Lambda function
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 10000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Sub ${Environment}-FileProcessing-AnalyzeSentiment
+      AlarmActions:
+        - !Ref FileProcessingAlertsTopic
+
+  SaveSentimentHighErrorRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Environment}-FileProcessing-SaveSentiment-HighErrorRate
+      AlarmDescription: High error rate for SaveSentiment Lambda function
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Sub ${Environment}-FileProcessing-SaveSentiment
+      AlarmActions:
+        - !Ref FileProcessingAlertsTopic
+
+  SaveSentimentHighLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Environment}-FileProcessing-SaveSentiment-HighLatency
+      AlarmDescription: High latency for SaveSentiment Lambda function
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 10000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Sub ${Environment}-FileProcessing-SaveSentiment
+      AlarmActions:
+        - !Ref FileProcessingAlertsTopic
+
+  # ========== SNS Topic for Alerts ==========
+  FileProcessingAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${Environment}-FileProcessing-Alerts
+      DisplayName: !Sub File Processing Alerts - ${Environment}
+      Subscription:
+        - Protocol: email
+          Endpoint: admin@example.com
+
+Outputs:
+  FileProcessingApiUrl:
+    Description: URL of the File Processing API
+    Value: !Sub https://${FileProcessingApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/
+  FileProcessingInputBucketName:
+    Description: Name of the input S3 bucket for file uploads
+    Value: !Ref FileProcessingInputBucket
+  FileProcessingOutputBucketName:
+    Description: Name of the output S3 bucket for processed files
+    Value: !Ref FileProcessingOutputBucket
+  SentimentAnalysisTableName:
+    Description: Name of the DynamoDB table for sentiment analysis results
+    Value: !Ref SentimentAnalysisTable
+  CommonLayerArn:
+    Description: ARN of the shared Common Layer
+    Value: !Ref CommonLayer
+  ConvertToHTMLFunctionArn:
+    Description: ARN of the ConvertToHTML Lambda function
+    Value: !GetAtt ConvertToHTMLFunction.Arn
+  AnalyzeSentimentFunctionArn:
+    Description: ARN of the AnalyzeSentiment Lambda function
+    Value: !GetAtt AnalyzeSentimentFunction.Arn
+  SaveSentimentFunctionArn:
+    Description: ARN of the SaveSentiment Lambda function
+    Value: !GetAtt SaveSentimentFunction.Arn

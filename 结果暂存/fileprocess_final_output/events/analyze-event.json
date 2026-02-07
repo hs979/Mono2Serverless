@@ -1,0 +1,33 @@
+{
+  "body": "I absolutely love this product! It has changed my life for the better. The quality is outstanding and the customer service is exceptional. I would recommend this to everyone.",
+  "headers": {
+    "content-type": "text/plain",
+    "User-Agent": "TestClient/1.0"
+  },
+  "queryStringParameters": {
+    "filename": "positive-review.txt"
+  },
+  "pathParameters": {
+    "filename": "positive-review.txt"
+  },
+  "httpMethod": "POST",
+  "isBase64Encoded": false,
+  "requestContext": {
+    "accountId": "123456789012",
+    "apiId": "test-api-id",
+    "protocol": "HTTP/1.1",
+    "httpMethod": "POST",
+    "path": "/files/{filename}/sentiment",
+    "stage": "test",
+    "requestId": "test-request-id",
+    "requestTime": "09/Apr/2015:12:34:56 +0000",
+    "requestTimeEpoch": 1428582896000,
+    "identity": {
+      "sourceIp": "127.0.0.1",
+      "userAgent": "TestClient/1.0"
+    }
+  },
+  "resource": "/files/{filename}/sentiment",
+  "path": "/files/positive-review.txt/sentiment",
+  "stageVariables": null
+}

@@ -1,0 +1,363 @@
+{
+  "session_id": "20260207_141556",
+  "total_duration_seconds": 6468.822903633118,
+  "summary": {
+    "total_duration_seconds": 6468.822903633118,
+    "llm_calls": {
+      "count": 0,
+      "total_time_seconds": 0,
+      "average_time_seconds": 0,
+      "percentage_of_total": 0.0
+    },
+    "tasks": {
+      "count": 3,
+      "total_time_seconds": 6301.56730723381
+    },
+    "tool_calls": {
+      "count": 41,
+      "total_time_seconds": 58.345568895339966,
+      "percentage_of_total": 0.9019503202440594
+    },
+    "other_time_seconds": 6410.477334737778,
+    "other_percentage": 99.09804967975595
+  },
+  "llm_calls": [],
+  "task_times": [
+    {
+      "timestamp": "2026-02-07T14:42:52.429406",
+      "task_name": "Read storage/analysis_report.json and design a com",
+      "agent_name": "AWS Serverless Migration Architect",
+      "duration_seconds": 1449.7993745803833,
+      "success": true,
+      "output_size": 7841
+    },
+    {
+      "timestamp": "2026-02-07T15:14:46.277645",
+      "task_name": "Based on storage/blueprint.json, generate a COMPLE",
+      "agent_name": "Serverless Application Developer",
+      "duration_seconds": 1913.6774878501892,
+      "success": true,
+      "output_size": 2709
+    },
+    {
+      "timestamp": "2026-02-07T16:03:44.535804",
+      "task_name": "Analyze the generated application code in output/ ",
+      "agent_name": "AWS SAM Infrastructure-as-Code Specialist",
+      "duration_seconds": 2938.090444803238,
+      "success": true,
+      "output_size": 16568
+    }
+  ],
+  "agent_times": [
+    {
+      "timestamp": "2026-02-07T14:42:52.404734",
+      "agent_name": "AWS Serverless Migration Architect",
+      "action_type": "execute_task",
+      "duration_seconds": 1449.7727031707764,
+      "details": "Task: N/A"
+    },
+    {
+      "timestamp": "2026-02-07T15:14:46.258516",
+      "agent_name": "Serverless Application Developer",
+      "action_type": "execute_task",
+      "duration_seconds": 1913.6520762443542,
+      "details": "Task: N/A"
+    },
+    {
+      "timestamp": "2026-02-07T16:03:44.530734",
+      "agent_name": "AWS SAM Infrastructure-as-Code Specialist",
+      "action_type": "execute_task",
+      "duration_seconds": 2938.0649466514587,
+      "details": "Task: N/A"
+    }
+  ],
+  "tool_calls": [
+    {
+      "timestamp": "2026-02-07T14:20:44.136437",
+      "tool_name": "ReadFileTool",
+      "agent_name": "architect",
+      "duration_seconds": 0.031896114349365234,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T14:22:36.912400",
+      "tool_name": "WriteFileTool",
+      "agent_name": "architect",
+      "duration_seconds": 0.0276339054107666,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T14:23:10.216896",
+      "tool_name": "ReadFileTool",
+      "agent_name": "architect",
+      "duration_seconds": 0.040348052978515625,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T14:25:07.672211",
+      "tool_name": "WriteFileTool",
+      "agent_name": "architect",
+      "duration_seconds": 0.045140743255615234,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T14:30:44.246141",
+      "tool_name": "ReadFileTool",
+      "agent_name": "architect",
+      "duration_seconds": 0.010573625564575195,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T14:32:39.607501",
+      "tool_name": "ReadFileTool",
+      "agent_name": "architect",
+      "duration_seconds": 0.04226398468017578,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T14:34:32.681406",
+      "tool_name": "WriteFileTool",
+      "agent_name": "architect",
+      "duration_seconds": 0.044001102447509766,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T14:41:58.471176",
+      "tool_name": "WriteFileTool",
+      "agent_name": "architect",
+      "duration_seconds": 0.004999399185180664,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T14:46:52.119656",
+      "tool_name": "CodeRAGTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 1.5463848114013672,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T14:48:46.280416",
+      "tool_name": "ReadFileTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 0.010451555252075195,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T14:50:42.357276",
+      "tool_name": "CodeRAGTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 0.29967236518859863,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T14:53:20.998438",
+      "tool_name": "WriteFileTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 0.07224369049072266,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T14:55:15.719740",
+      "tool_name": "WriteFileTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 0.09924149513244629,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T14:57:11.282473",
+      "tool_name": "WriteFileTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 0.06540346145629883,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T14:59:16.292305",
+      "tool_name": "WriteFileTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 0.010618209838867188,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:01:17.442428",
+      "tool_name": "WriteFileTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 0.025363445281982422,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:03:22.139920",
+      "tool_name": "WriteFileTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 0.03249692916870117,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:05:21.215685",
+      "tool_name": "WriteFileTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 0.08091282844543457,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:07:16.657903",
+      "tool_name": "WriteFileTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 0.05664873123168945,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:10:54.399882",
+      "tool_name": "WriteFileTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 0.031664133071899414,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:11:45.978229",
+      "tool_name": "WriteFileTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 0.046102046966552734,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:12:43.571032",
+      "tool_name": "WriteFileTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 0.005059480667114258,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:13:36.292894",
+      "tool_name": "WriteFileTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 0.06202435493469238,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:14:20.605622",
+      "tool_name": "WriteFileTool",
+      "agent_name": "code_developer",
+      "duration_seconds": 0.07421660423278809,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:16:55.847117",
+      "tool_name": "FileListTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 0.08783721923828125,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:17:36.538429",
+      "tool_name": "ReadFileTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 0.00768589973449707,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:18:01.175871",
+      "tool_name": "ReadFileTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 0.002679109573364258,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:20:01.472920",
+      "tool_name": "ReadFileTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 0.0022978782653808594,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:21:57.510921",
+      "tool_name": "ReadFileTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 0.0025527477264404297,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:23:51.965061",
+      "tool_name": "ReadFileTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 0.03649330139160156,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:25:46.251628",
+      "tool_name": "ReadFileTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 0.02624678611755371,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:27:40.315267",
+      "tool_name": "ReadFileTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 0.0409541130065918,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:29:33.124041",
+      "tool_name": "ReadFileTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 0.002628326416015625,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:31:49.246973",
+      "tool_name": "SAMValidateTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 20.230322122573853,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:33:45.581853",
+      "tool_name": "ReadFileTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 0.0036780834197998047,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:35:38.727660",
+      "tool_name": "WriteFileTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 0.08016061782836914,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:37:51.487412",
+      "tool_name": "SAMValidateTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 17.722254276275635,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:39:45.308865",
+      "tool_name": "WriteFileTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 0.04619717597961426,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:41:56.664284",
+      "tool_name": "SAMValidateTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 17.20755362510681,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:53:21.481942",
+      "tool_name": "WriteFileTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 0.07727360725402832,
+      "success": true
+    },
+    {
+      "timestamp": "2026-02-07T15:55:37.339638",
+      "tool_name": "ReadFileTool",
+      "agent_name": "sam_engineer",
+      "duration_seconds": 0.003392934799194336,
+      "success": true
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "project_structure": "fileprocessing/\n├── database.py\n├── init_dynamodb.py\n├── main.py\n├── metadata.json\n├── output\n│   └── html\n├── processing.py\n└── requirements.txt",
+  "entry_points": [],
+  "dependency_graph": {
+    "fileprocessing/database.py": [
+      "boto3",
+      "datetime",
+      "os"
+    ],
+    "fileprocessing/init_dynamodb.py": [
+      "boto3",
+      "botocore.exceptions",
+      "os",
+      "sys"
+    ],
+    "fileprocessing/main.py": [
+      "argparse",
+      "database",
+      "os",
+      "processing",
+      "sys"
+    ],
+    "fileprocessing/processing.py": [
+      "boto3",
+      "markdown",
+      "os"
+    ]
+  },
+  "file_tags": {
+    "fileprocessing/database.py": [
+      "AWS_SDK",
+      "DynamoDB"
+    ],
+    "fileprocessing/init_dynamodb.py": [
+      "AWS_SDK",
+      "DynamoDB"
+    ],
+    "fileprocessing/main.py": [
+      "DynamoDB",
+      "FileUpload"
+    ],
+    "fileprocessing/processing.py": [
+      "AWS_SDK",
+      "FileUpload"
+    ]
+  },
+  "symbol_table": [
+    {
+      "id": "fileprocessing.database.save_sentiment",
+      "file_path": "fileprocessing/database.py",
+      "start_line": 18,
+      "end_line": 50
+    },
+    {
+      "id": "fileprocessing.init_dynamodb.get_dynamodb_client",
+      "file_path": "fileprocessing/init_dynamodb.py",
+      "start_line": 16,
+      "end_line": 18
+    },
+    {
+      "id": "fileprocessing.init_dynamodb.table_exists",
+      "file_path": "fileprocessing/init_dynamodb.py",
+      "start_line": 20,
+      "end_line": 28
+    },
+    {
+      "id": "fileprocessing.init_dynamodb.wait_for_table",
+      "file_path": "fileprocessing/init_dynamodb.py",
+      "start_line": 30,
+      "end_line": 41
+    },
+    {
+      "id": "fileprocessing.init_dynamodb.create_sentiment_table",
+      "file_path": "fileprocessing/init_dynamodb.py",
+      "start_line": 43,
+      "end_line": 115
+    },
+    {
+      "id": "fileprocessing.main.main",
+      "file_path": "fileprocessing/main.py",
+      "start_line": 7,
+      "end_line": 73
+    },
+    {
+      "id": "fileprocessing.processing.convert_to_html",
+      "file_path": "fileprocessing/processing.py",
+      "start_line": 5,
+      "end_line": 46
+    },
+    {
+      "id": "fileprocessing.processing.analyze_sentiment",
+      "file_path": "fileprocessing/processing.py",
+      "start_line": 48,
+      "end_line": 108
+    }
+  ],
+  "config_info": {
+    "python_dependencies": [
+      {
+        "name": "markdown",
+        "version": "3.3.6"
+      },
+      {
+        "name": "boto3",
+        "version": ">=1.26.0"
+      }
+    ]
+  },
+  "dynamodb_info": {
+    "used": true,
+    "probable_tables": [],
+    "schema_files": [
+      "fileprocessing/init_dynamodb.py",
+      "fileprocessing/database.py",
+      "fileprocessing/main.py"
+    ]
+  }
+}

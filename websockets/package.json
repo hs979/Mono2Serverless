@@ -1,0 +1,19 @@
+{
+  "name": "websocket-chat-monolith",
+  "version": "1.0.0",
+  "description": "WebSocket Chat Application",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "keywords": [
+    "websocket",
+    "chat",
+    "real-time"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.14.2"
+  }
+}
