@@ -2,261 +2,658 @@ tasks:
   - id: architect_blueprint
     agent: architect
     description: |
-      Read storage/analysis_report.json and design a comprehensive serverless
-      application architecture using your knowledge base of architecture patterns.
+      Read storage/analysis_report.json and design a complete serverless architecture blueprint.
       
-      ⚠️ KNOWLEDGE-DRIVEN DESIGN:
-      Before starting, consult your serverless architecture patterns knowledge base to:
-      1. Identify which of the 5 patterns fits this application best
-      2. Understand which services are truly needed vs nice-to-have
-      3. Avoid common anti-patterns and over-engineering
+      Your mission: Analyze the analysis_report.json and design a complete serverless
+      architecture in ONE operation that ensures ALL monolith functionality works in AWS.
       
-      The 5 patterns to consider:
-      - Pattern 1: Simple REST API (default for most CRUD apps)
-      - Pattern 2: WebSocket Real-time
-      - Pattern 3: Event-Driven Fan-Out
-      - Pattern 4: Workflow Orchestration
-      - Pattern 5: Hybrid Microservices
+      ⚠️ CRITICAL: Use ONE-TIME WRITE STRATEGY
+      - Read analysis_report.json ONCE
+      - Design complete blueprint IN MEMORY
+      - Write complete blueprint.json ONCE (no incremental updates)
+      - This avoids CrewAI's duplicate input detection mechanism
       
-      ⚠️ CRITICAL: Generate blueprint in MODULAR STEPS to avoid truncation:
+      ============================================================
+      CORE PRINCIPLES
+      ============================================================
       
-      STEP 1: Create Initial Blueprint Structure
-      Write storage/blueprint.json with basic metadata and empty sections:
-      {
-        "metadata": {
-          "application_name": "...",
-          "architecture_pattern": "Pattern X: ...",
-          "pattern_rationale": "Brief explanation of why this pattern was chosen"
-        },
-        "lambda_architecture": {},
-        "data_architecture": {},
-        "auth_architecture": {},
-        "api_gateway": {},
-        "integration_patterns": {},
-        "monitoring": {},
-        "dropped_functions": []
-      }
+      1. **Preserve Functionality**: Migrate what exists, do not add or remove features
+      2. **Basic Architecture**: Use API Gateway + Lambda + DynamoDB/S3 + Cognito (if needed)
+      3. **Infrastructure Over Code**: Authentication is infrastructure, not application code
+      4. **Delete, Don't Migrate**: Auth endpoints are deleted, not converted to Lambda
       
-      STEP 2: Update Lambda Architecture Section
-      Read existing blueprint, update ONLY lambda_architecture section, write back:
-      - Lambda functions grouped by domain (user, order, payment, etc.)
-      - ⚠️ EXCLUDE functions handled by Cognito (login, register) - add to dropped_functions
-      - ⚠️ EXCLUDE infrastructure scripts (init_db.py, create_tables.py)
-      - Shared Lambda layers for common utilities
-      - (Optional) Step Functions ONLY if complex workflows (>3 steps) detected
+      ⚠️ CRITICAL: "Infrastructure over Code" for Authentication
       
-      STEP 3: Update Data Architecture Section
-      Read existing blueprint, update ONLY data_architecture section, write back:
-      - DynamoDB table schemas (from analysis_report.dynamodb_info)
-      - Table relationships and indexes
-      - (Optional) S3 buckets ONLY if file upload detected in analysis_report
+      Authentication should be handled by AWS managed services (Cognito), NOT by Lambda code.
+      This means:
+      - ❌ Do NOT create Lambda functions for register/login/logout
+      - ❌ Do NOT write token validation code in Lambda
+      - ✅ Frontend calls Cognito SDK directly (AWS Amplify, Cognito JS SDK)
+      - ✅ API Gateway validates tokens automatically (Cognito Authorizer)
+      - ✅ Lambda only receives pre-validated user identity via event.requestContext
       
-      STEP 4: Update Auth Architecture Section
-      Read existing blueprint, update ONLY auth_architecture section, write back:
-      - Cognito User Pools configuration (if auth detected)
-      - User pool attributes and password policies
-      - Lambda triggers (PostConfirmation, PreAuthentication, etc.)
+      ============================================================
+      ARCHITECTURE DESIGN GUIDELINES
+      ============================================================
       
-      STEP 5: Update API Gateway Section
-      Read existing blueprint, update ONLY api_gateway section, write back:
-      - API type: REST API (default) or WebSocket API (only if Pattern 2 selected)
-      - CORS settings
-      - Stages (dev, prod)
-      - Throttling and authorization configuration
+      **1. LAMBDA FUNCTIONS DESIGN**
+      Map endpoints to Lambda functions
+      ⚠️ CRITICAL DECISION - Check Application Type First:
       
-      STEP 6: Update Integration Patterns Section (Evidence-Based)
-      Read existing blueprint, update ONLY integration_patterns section if needed:
-      - Consult knowledge base for service selection rules
-      - ✅ Add SQS ONLY if: background jobs, async tasks, or queues detected
-      - ✅ Add SNS ONLY if: fanout to multiple subscribers (<5) detected
-      - ✅ Add EventBridge ONLY if: complex event routing or >3 subscribers detected
-      - ✅ Add Step Functions ONLY if: workflows with >3 dependent steps detected
-      - ❌ If no clear evidence in analysis_report, keep this section minimal or empty
-      - Reference knowledge base anti-patterns to avoid overuse
+      CASE A: Application has ONLY ONE main resource/topic (or only one remains after dropping Auth)
+      → ⚠️ CRITICAL: You MUST Split by Endpoint
+      → Create ONE separate Lambda function for EACH endpoint (e.g., GetItemFunction, CreateItemFunction)
+      → ❌ DO NOT group them into one "AppFunction"
+      → Ignore original file organization (even if all in one solid file)
+      → Rationale: Single-purpose functions are better for simple apps.
       
-      STEP 7: Update Monitoring Section
-      Read existing blueprint, update ONLY monitoring section, write back:
-      - CloudWatch Log Groups configuration
-      - CloudWatch Alarms for critical metrics
+      CASE B: Application has MULTIPLE domains (e.g.,  /orders, /products)
+      → Consider following source code organization
       
-      ⚠️ IMPORTANT: Each step reads the CURRENT blueprint.json, updates ONE section, then writes back.
-      This ensures the final blueprint.json is complete and not truncated.
+      General Rule:
+      - Apply single-responsibility principle.
+      - Max 5-10 routes per Lambda (only relevant for CASE B).
+      ============================================================
+      RULE 1: "DELETE, DON'T MIGRATE" - Auth Endpoints
+      ============================================================
+      
+      IF analysis_report.features contains "Auth" tag:
+      
+      Drop These Endpoints (add to dropped_functions):
+      - POST /register, /login, /logout, /refresh-token, /reset-password
+      - GET /me
+      - Reason: "Replaced by Cognito - Frontend calls AWS Amplify directly"
+      
+      Drop These Scripts:
+      - init_dynamodb.py, create_tables.py, setup_db.py
+      - Reason: "Table creation handled by SAM CloudFormation"
+      
+      ⚠️ Preserve Functionality: Only migrate what exists
+      - No auth → cognito.enabled = false
+      - No database → dynamodb_tables = []
+      - No file storage → s3_buckets = []
+      
+      ============================================================
+      RULE 2: "GATEWAY AUTHORIZATION" - Token Validation
+      ============================================================
+      
+      Correct Flow:
+      Request → API Gateway (Cognito Authorizer validates JWT) → Lambda (pure business logic)
+      
+      Implementation:
+      - API Gateway Auth.Authorizers.CognitoAuthorizer with UserPoolArn
+      - Lambda accesses: event['requestContext']['authorizer']['claims']['sub']
+      - User ID = Cognito Sub (UUID string)
+      
+      Do NOT Migrate:
+      - verifyToken middleware → Replaced by API Gateway Authorizer
+      - JWT validation code → Handled by Cognito Authorizer
+      - Add to dropped_functions
+      
+      **2. DATA ARCHITECTURE DESIGN**
+      
+      Check analysis_report.dynamodb_info:
+      - IF dynamodb_info.used == false → Set dynamodb_tables = []
+      - IF dynamodb_info.used == true: Extract table names and apply migration strategy below
+      
+      ⚠️ CRITICAL: Users Table Three-Step Migration
+      
+      Step 1: Analyze Users table fields
+      - Auth fields: password, password_hash, passwordHash, salt, token, refresh_token
+      - Profile fields: name, bio, avatar, phone, preferences, address, role, created_at
+      
+      Step 2: Choose migration strategy
+      - IF only auth fields → DELETE entire table, Cognito handles all, no UserProfiles needed
+      - IF has profile fields → CREATE UserProfiles table with profile fields only
+      
+      Step 3: Define UserProfiles table (if needed)
+      - Partition Key: userId (String - stores Cognito Sub UUID)
+      - Remove: password*, salt, token*, username, email (→ Cognito manages)
+      - Keep: name, bio, avatar_url, preferences, role, created_at
+      - Example userId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+      
+      Business Tables (Orders, Products, etc.):
+      - Migrate all to DynamoDB
+      - Foreign Key Type Change:
+        * Old: user_id → INTEGER or String(username)
+        * New: userId → String (Cognito Sub UUID)
+        * Lambda source: event['requestContext']['authorizer']['claims']['sub']
+      - Add GSI with userId if queries by user needed
+      
+      ⚠️ IMPORTANT: Do NOT define KeySchema or AttributeDefinitions in blueprint.
+      SAM Engineer will extract these from source files.
+      
+      File Storage:
+      IF analysis_report.features contains "FileUpload" or "FileStorage":
+      - Add S3 bucket to s3_buckets list
+      - ELSE: Set s3_buckets = []
+      
+      ============================================================
+      RULE 3: "TRIGGER PATTERN" - Post-Registration Business Logic
+      ============================================================
+      
+      ⚠️ CRITICAL: Separate Authentication from Business Initialization
+      
+      Common Mistake: Developers think they need to keep registerUser Lambda because it does:
+      1. Create user account (authentication)
+      2. Create shopping cart (business logic)
+      3. Send welcome email (business logic)
+      
+      Correct Approach: Split into two parts
+      
+      Part 1: User Registration (Infrastructure)
+      - Frontend calls cognito.signUp() directly
+      - No Lambda needed
+      
+      Part 2: Business Initialization (Event-Driven Lambda)
+      - Use Cognito Post-Confirmation Trigger
+      - Cognito automatically invokes a Lambda AFTER successful registration
+      - This Lambda ONLY contains business logic (create cart, send email)
+      - This Lambda does NOT handle passwords or authentication
+      
+      Example Flow:
+      1. User submits registration form
+      2. Frontend calls AWS Amplify: Auth.signUp(email, password)
+      3. Cognito creates user account
+      4. Cognito triggers PostConfirmation Lambda
+      5. PostConfirmation Lambda: createShoppingCart(cognito_sub), sendWelcomeEmail(email)
+      
+      **3. AUTHENTICATION ARCHITECTURE DESIGN**
+      
+      Check analysis_report.features:
+      - IF "Auth" tag is NOT present → Set cognito = {enabled: false}
+      - IF "Auth" tag is present:
+        * enabled: true
+        * user_pool_attributes: ["email", "name"] (extract from user model)
+        * password_policy: Define requirements (min_length, symbols, numbers, etc.)
+        * triggers.post_confirmation: 
+          - Analyze monolith register function for business logic
+          - If creates profile/cart/data → Set post_confirmation.enabled = true
+          - Document the business initialization logic
+          - This becomes a separate Lambda triggered by Cognito (not exposed as API)
+      
+      **4. API GATEWAY CONFIGURATION**
+      
+      API Gateway Configuration:
+      - type: "REST" (use REST API for standard HTTP endpoints)
+      - cors: {allow_origins: ["*"], allow_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]}
+      
+      Authorizer Configuration (CRITICAL for Gateway Authorization):
+      - IF cognito.enabled == true:
+        * authorizer: "Cognito"
+        * authorizer_type: "COGNITO_USER_POOLS"
+        * user_pool_arn: Reference to Cognito User Pool
+        * token_validation: "Automatic at API Gateway layer"
+        * identity_source: "Authorization header (Bearer token)"
+      - ELSE:
+        * authorizer: "None"
+      
+      ⚠️ Security Flow:
+      1. Client includes JWT in Authorization header: "Bearer eyJhbGc..."
+      2. API Gateway validates JWT signature using Cognito public keys
+      3. If valid → API Gateway passes user claims to Lambda via event.requestContext
+      4. If invalid → API Gateway returns 401 Unauthorized (Lambda never invoked)
+      5. Lambda receives pre-validated user_id via event['requestContext']['authorizer']['claims']['sub']
+      
+      Result: Zero authentication code in Lambda functions
+      
+      **5. SHARED LAYERS DESIGN**
+      
+      Identify common utility code across multiple Lambda functions:
+      - Database client wrappers (DynamoDB helper functions)
+      - Logging utilities (structured logging setup)
+      - Validation helpers (input validation, data sanitization)
+      
+      IF common code exists: Define layer with name, runtime, source_files, includes
+      ELSE: Set shared_layers = []
+      
+      **6. TABLE INITIALIZATION STRATEGY**
+      
+      IF monolith has initial/seed data in init scripts:
+      - Extract requirements from init_dynamodb.py or similar files
+      - Document: table name, source_file, strategy
+      - Strategy: "Custom Resource Lambda during CloudFormation deployment"
+      ELSE: Set table_initialization = []
+      
+      ============================================================
+      OUTPUT BLUEPRINT STRUCTURE (Write ONCE to storage/blueprint.json)
+      ============================================================
+      
+      Generate complete blueprint.json with these sections:
+      
+      1. **metadata**:
+         - application_name: Extract from analysis_report
+         - architecture_pattern: "Basic Serverless Architecture"
+         - has_authentication: true/false (based on features)
+         - has_database: true/false (based on dynamodb_info.used)
+         - has_file_storage: true/false (based on features)
+      
+      2. **lambda_functions**: Array of Lambda definitions
+         Note: Grouping strategy depends on endpoint complexity - can be one Lambda per endpoint (simple)
+               or grouped by domain (complex). Example shows grouped approach:
+         [
+           {
+             "name": "user-service",
+             "runtime": "python3.11",
+             "handler": "handler.lambda_handler",
+             "source_files": ["app/routes/users.py", "app/services/user_service.py"],
+             "entry_points": ["/users", "/users/{id}"],
+             "environment_variables": {
+               "USER_PROFILES_TABLE": "${UserProfilesTable}",
+               "ORDERS_TABLE": "${OrdersTable}"
+             }
+           }
+         ]
+      
+      3. **dynamodb_tables**: Array of table definitions (empty if no database)
+         [
+           {
+             "logical_name": "UserProfiles",
+             "purpose": "Store user profile data (NOT credentials)",
+             "schema_source_files": ["app/models/user.py"]
+           },
+           {
+             "logical_name": "Orders",
+             "purpose": "Store order data",
+             "schema_source_files": ["app/models/order.py"]
+           }
+         ]
+      
+      4. **s3_buckets**: Array of S3 bucket definitions (empty if no file storage)
+         [
+           {
+             "logical_name": "FileStorageBucket",
+             "purpose": "Store user-uploaded files and generated documents"
+           }
+         ]
+      
+      5. **cognito**: Cognito configuration (empty if no auth)
+         {
+           "enabled": true/false,
+           "user_pool_attributes": ["email", "name"],
+           "password_policy": {...},
+           "triggers": {
+             "post_confirmation": {
+               "enabled": true/false,
+               "purpose": "Create user profile after registration"
+             }
+           }
+         }
+      
+      6. **shared_layers**: Array of Lambda Layer definitions (empty if no shared code)
+         [
+           {
+             "name": "common-utils",
+             "runtime": "python3.11",
+             "description": "Shared utilities for all Lambda functions",
+             "source_files": ["app/utils/db_helper.py", "app/utils/logger.py", "app/utils/validators.py"],
+             "includes": ["database client wrappers", "logging utilities", "validation helpers"]
+           }
+         ]
+      
+      7. **api_gateway**: API Gateway configuration
+         {
+           "type": "REST",
+           "cors": {...},
+           "authorizer": "Cognito" or "None"
+         }
+      
+      8. **table_initialization**: Table initialization strategy (if needed)
+         [
+           {
+             "table": "Products",
+             "source_file": "init_dynamodb.py",
+             "strategy": "Custom Resource Lambda"
+           }
+         ]
+      
+      9. **dropped_functions**: List of dropped items with detailed migration path
+         ⚠️ IMPORTANT: For each auth endpoint, specify how frontend should integrate
+         [
+           {
+             "item": "POST /register",
+             "type": "endpoint",
+             "reason": "Replaced by Cognito User Pool - Frontend calls AWS Amplify Auth.signUp()",
+             "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signUp({username, password, attributes: {email}})"
+           },
+           {
+             "item": "POST /login",
+             "type": "endpoint",
+             "reason": "Replaced by Cognito User Pool - Frontend calls AWS Amplify Auth.signIn()",
+             "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signIn(username, password)"
+           },
+           {
+             "item": "POST /logout",
+             "type": "endpoint",
+             "reason": "Replaced by Cognito User Pool - Frontend calls AWS Amplify Auth.signOut()",
+             "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signOut()"
+           },
+           {
+             "item": "POST /refresh-token",
+             "type": "endpoint",
+             "reason": "Replaced by Cognito automatic token refresh",
+             "frontend_integration": "AWS Amplify automatically refreshes tokens - no code needed"
+           },
+           {
+             "item": "GET /me",
+             "type": "endpoint",
+             "reason": "Replaced by Cognito User Pool - Frontend calls AWS Amplify Auth.currentAuthenticatedUser()",
+             "frontend_integration": "import { Auth } from 'aws-amplify'; const user = await Auth.currentAuthenticatedUser()"
+           },
+           {
+             "item": "verifyToken middleware / auth decorators",
+             "type": "code",
+             "reason": "Replaced by API Gateway Cognito Authorizer - Token validation at gateway layer, not in Lambda code"
+           },
+           {
+             "item": "init_dynamodb.py",
+             "type": "script",
+             "reason": "Infrastructure script - Table creation handled by SAM template CloudFormation resources"
+           },
+           {
+             "item": "Users table (credentials: email, password, password_hash, salt)",
+             "type": "table",
+             "reason": "User authentication moved to Cognito User Pool - Profile data kept in UserProfiles table with Cognito Sub as key"
+           }
+         ]
+      
+      ============================================================
+      CRITICAL VALIDATION CHECKLIST
+      ============================================================
+      
+      Before finalizing blueprint, verify "Infrastructure over Code" principles:
+      
+      ✓ All entry_points are accounted for (either in Lambda or dropped_functions)
+      ✓ Auth endpoints (/register, /login, /logout, /refresh, /me) are DROPPED (not migrated to Lambda)
+      ✓ Each dropped auth endpoint includes frontend_integration guidance
+      ✓ User credentials table is DELETED (if Cognito is used)
+      ✓ Auth middleware/decorators are DROPPED (token validation at API Gateway, not Lambda)
+      ✓ Infrastructure scripts are dropped with proper reason
+      ✓ API Gateway authorizer is "Cognito" (if auth exists), not "None"
+      ✓ Post-confirmation trigger is documented (if register function has business logic)
+      ✓ UserProfiles table uses Cognito Sub (UUID) as primary key, not auto-increment integer
+      ✓ Business tables foreign keys reference Cognito Sub, not integer user_id
+      ✓ If monolith has no auth → cognito.enabled = false
+      ✓ If monolith has no database → dynamodb_tables = []
+      ✓ If monolith has no file storage → s3_buckets = []
+      ✓ Table initialization data is extracted and documented
+      ✓ All schema_source_files reference existing files from analysis_report
+      
+      Three-Layer Check:
+      1. Infrastructure Layer: Cognito User Pool replaces Users table (credentials)
+      2. Code Layer: Auth endpoints deleted, frontend calls Cognito SDK directly
+      3. Data Association Layer: Business data uses Cognito Sub, not integer user_id
+      
+      Focus on correctness and completeness. The blueprint must enable SAM Engineer
+      to generate working infrastructure.
     expected_output: |
-      A complete blueprint.json file at storage/blueprint.json including all sections:
+      A complete blueprint.json at storage/blueprint.json with all sections populated:
+      metadata, lambda_functions, dynamodb_tables, s3_buckets, cognito, shared_layers, 
+      api_gateway, table_initialization, dropped_functions.
       
-      - metadata:
-        * application_name
-        * architecture_pattern (which of the 5 patterns was selected)
-        * pattern_rationale (why this pattern was chosen based on analysis)
-      
-      - lambda_architecture (functions, layers, optional step functions)
-      - data_architecture (DynamoDB, optional S3)
-      - api_gateway (REST API or WebSocket based on pattern)
-      - auth_architecture (Cognito if auth detected)
-      - integration_patterns (optional: only if evidence-based need detected)
-      - monitoring (CloudWatch)
-      - dropped_functions (list with reasons)
-      
-      Design Principle: Follow the selected architecture pattern from knowledge base.
-      Start with Pattern 1 (Simple REST) unless analysis shows clear need for other patterns.
-      Add optional services (SQS/SNS/EventBridge/Step Functions) ONLY when analysis 
-      provides clear evidence. Consult knowledge base to avoid anti-patterns.
+      Must preserve all monolith functionality and follow architecture principles.
 
   - id: generate_complete_application
     agent: code_developer
     description: |
       Based on storage/blueprint.json, generate a COMPLETE serverless application.
 
-      STRICT DATA SOURCE RULES:
-      1. Primary Source: Use `ReadFileTool` to read the exact `source_files` defined in storage/blueprint.json. This is non-negotiable for business logic.
-         ⚠️ IMPORTANT: If the source path contains a colon (e.g., "path/to/file.js:functionName"), YOU MUST SPLIT IT. Only read the file path part ("path/to/file.js").
-      2. Secondary Source: Use `CodeRAGTool` to locate helper functions, models, or **similar code patterns** to understand intent and fill knowledge gaps. Always read the full content of found files with `ReadFileTool`.
+      Your mission: Generate a COMPLETE serverless application ready for deployment.
       
-      APPLICATION COMPONENTS:
-      1. Lambda Functions:
-         - Create handler.py (or .js) for each Lambda in output/lambdas/{name}/
-         - Transform monolith routes to lambda_handler(event, context) functions
-         - ⚠️ SKIP generation for any functions listed in "dropped_functions"
-         - Convert database calls to DynamoDB boto3 operations
-         - Add proper error handling, logging, and environment variable usage
-         - Add requirements.txt with dependencies
+      ============================================================
+      PHASE 1: LAMBDA FUNCTIONS
+      ============================================================
+      For EACH Lambda in blueprint.lambda_functions:
       
-      2. Shared Utilities:
-         - Extract common code to output/shared/
-         - Create Lambda layer structure in output/layers/
-         - Include database clients, logging utilities, authentication helpers
+      **Step 1.1: Strict Source Code Collection**
+      ⚠️ CRITICAL: The Blueprint contains a list of `source_files` for each Lambda.
+      1. You MUST use **ReadFileTool** to read the raw content of these exact files.
+      2. **DO NOT** use CodeRAGTool to generate/guess the code logic. RAG is incomplete.
+      3. Use **CodeRAGTool** to:
+         - Find definitions of dependencies (e.g., "Find the definition of function `calculate_tax` used in `order_service.py`").
+         - Search for similar code patterns or logic in the codebase to understand intent (e.g., "Find other examples of payment processing to understand the pattern").
+         - Fill knowledge gaps if static analysis is insufficient.
+         Once relevant files are found via RAG, ALWAYS use ReadFileTool to get their full content.
       
-      3. Step Functions (if needed):
-         - Generate .asl.json state machine definitions in output/statemachines/
-         - Include error handling, retry logic, and timeout configuration
+      **Step 1.2: Transform to Lambda Handler**
+      Create: output/lambdas/{lambda_name}/handler.py (or .js)
       
-      4. Event Handlers (if async processing exists):
-         - SQS queue handlers for background jobs
-         - SNS topic subscribers for notifications
-         - EventBridge rule handlers for scheduled tasks
+      Key transformations:
+      - Flask/Express routes → lambda_handler(event, context)
+      - Extract parameters from event['pathParameters'] / event['queryStringParameters']
+      - Extract body from json.loads(event['body'])
+      - Replace database calls: SQLite/MySQL → boto3 DynamoDB client
+      - Remove global state (use environment variables)
       
-      DOCUMENTATION:
-      - Create output/README.md with:
-        * Project structure overview
-        * Prerequisites (AWS CLI, SAM CLI, Python/Node versions)
-        * Quick start: `sam build && sam deploy --guided`
-        * Deployment configuration (samconfig.toml)
-        * Environment variables guide
-        * API endpoint documentation
-        * Testing instructions with sample requests
+      ⚠️ User Identity Standard Pattern:
+      ```python
+      def lambda_handler(event, context):
+          # Get user_id from pre-validated Cognito claims
+          user_id = event['requestContext']['authorizer']['claims']['sub']  # UUID
+          
+          # If user profile needed, query UserProfiles
+          if need_profile:
+              profile = profiles_table.get_item(Key={'userId': user_id})
+          
+          # Business logic with UUID user_id
+          return process_logic(user_id, event['body'])
+      ```
       
-      PROCESS:
-      - Use ReadFileTool to read monolith source code from file mappings
-      - Use CodeRAGTool to discover dependencies and utility functions
-      - Use WriteFileTool to create the complete directory structure
+      - All userId fields: String type (Cognito Sub UUID)
+      - Add proper error handling and logging
       
-      CRITICAL: Preserve all business logic exactly as in monolith.
-      Generate complete, runnable files, not code snippets.
-    expected_output: "A complete serverless application in output/ directory with lambdas/, shared/, statemachines/ (if applicable), and README.md, ready for SAM deployment"
+      **Step 1.3: Dependencies**
+      Create: output/lambdas/{lambda_name}/requirements.txt
+      Include: boto3, any monolith dependencies needed.
+      
+      ⚠️ CHECK: If heavy libraries (like Pandas, NumPy, Django) are detected:
+      - Create a Lambda Layer for them OR suggest lightweight alternatives in comments.
+      - Ensure the deployment package remains lightweight (< 250MB unzipped).
+      
+      ============================================================
+      PHASE 2: SHARED LAYERS (if defined in blueprint)
+      ============================================================
+      IF blueprint.shared_layers exists and is not empty:
+      
+      For EACH layer in blueprint.shared_layers:
+      - Read source_files specified in the layer definition
+      - Extract and adapt common code for Lambda environment (env vars, boto3 clients)
+      - Create layer structure: output/layers/{layer_name}/python/
+      - Place adapted code directly in: output/layers/{layer_name}/python/{module_name}.py
+      
+      Common shared utilities to extract:
+      - Database client wrappers (DynamoDB helper functions)
+      - Logging utilities (structured logging setup)
+      - Authentication helpers (if not using Cognito Authorizer)
+      - Validation utilities
+      - Common error handlers
+      
+      Directory structure example:
+      output/layers/common-utils/python/db_helper.py
+      output/layers/common-utils/python/logger.py
+      output/layers/common-utils/python/validators.py
+      
+      ============================================================
+      PHASE 3: DEPLOYMENT GUIDE
+      ============================================================
+      Create: output/README.md
+      Include: 
+      - Project structure overview
+      - Prerequisites (AWS CLI, SAM CLI, runtime versions)
+      - Quick start: `sam build && sam deploy --guided`
+      - Deployment steps and configuration
+      - Environment variables guide
+      - API endpoint documentation
+      - Testing instructions with sample curl/API requests
+      - Note: Mention dropped endpoints (auth endpoints handled by Cognito)
+      
+      ============================================================
+      CRITICAL RULES
+      ============================================================
+      1. PRESERVE ALL BUSINESS LOGIC - do not simplify or skip
+      2. GENERATE COMPLETE FILES - not snippets
+      3. MAINTAIN DIRECTORY STRUCTURE as shown above
+      4. ENSURE CONSISTENCY - all references between files must work
+      5. USE ENVIRONMENT VARIABLES - no hardcoded values
+      6. DO NOT generate Step Functions, SQS handlers, SNS handlers, or EventBridge rules
+      7. Focus on basic serverless architecture: Lambda + API Gateway + DynamoDB/S3
+      
+      ⚠️⚠️⚠️ CRITICAL: YOU ARE A CODE DEVELOPER, NOT AN INFRASTRUCTURE ENGINEER! ⚠️⚠️⚠️
+      
+      YOUR RESPONSIBILITY:
+      ✅ Generate Lambda function code (handler.py, handler.js)
+      ✅ Generate Lambda layer code (shared utilities)
+      ✅ Generate dependency files (requirements.txt, package.json)
+      ✅ Generate README.md documentation
+      
+      NOT YOUR RESPONSIBILITY (DO NOT GENERATE):
+      ❌ template.yaml (SAM template) - This is sam_engineer's job!
+      ❌ template.yml
+      ❌ serverless.yml
+      ❌ cloudformation.yaml
+      ❌ cognito.yaml
+      ❌ samconfig.toml
+      ❌ Any AWS CloudFormation or SAM infrastructure-as-code files
+      
+      The next agent (sam_engineer) will analyze your generated code and create all infrastructure files.
+      Focus ONLY on application code, NOT infrastructure definitions!
+    expected_output: |
+      Complete application code in output/ directory:
+      - Lambda handlers and dependencies
+      - Shared layers (if needed)
+      - README.md with deployment and frontend integration guide
+      
+      ⚠️ NO infrastructure files (template.yaml, cognito.yaml) - sam_engineer creates those!
 
   - id: generate_sam_templates
     agent: sam_engineer
     description: |
-      Analyze the generated application code in output/ directory and blueprint.json,
-      then generate AWS SAM templates that perfectly match the code structure.
+      Analyze output/ code and blueprint.json, then generate SAM templates.
       
-      STEP 1: CODE ANALYSIS
-      - Use FileListTool to scan output/lambdas/ directory
-      - For each Lambda directory found:
-        * Read handler.py or handler.js to extract handler function name
-        * Read requirements.txt or package.json for dependencies
-        * Determine runtime (python3.11, nodejs18.x, etc.)
+      Your mission: Generate SAM template(s) that match the application code and blueprint.
       
-      STEP 2: MAIN TEMPLATE GENERATION
-      Create output/template.yaml with:
+      **CRITICAL**: You have access to a **Knowledge Base** containing standard AWS SAM patterns,
+      resource definitions, and policy templates. **ALWAYS** refer to this Knowledge Base
+      when generating the template structure to ensure best practices.
       
-      1. Globals Section:
-         - Default Lambda settings (timeout, memory, runtime)
-         - API Gateway CORS configuration (for external API consumers)
-         - Tracing configuration (X-Ray)
+      ============================================================
+      PHASE 1: ANALYZE GENERATED CODE & BLUEPRINT
+      ============================================================
       
-      2. Parameters:
-         - Environment (dev/prod)
-         - Configurable values (table names, timeouts, etc.)
+      **Step 1.1: Scan Application Directory**
+      Use FileListTool to scan output/ directory:
+      - output/lambdas/ - All Lambda function directories
+      - output/layers/ - Lambda layer code (if exists)
       
-      3. Lambda Functions:
-         - AWS::Serverless::Function for EACH discovered Lambda
-         - CodeUri pointing to actual code location
-         - Handler matching discovered handler name
-         - Environment variables referencing DynamoDB tables (!Ref)
-         - IAM policies (DynamoDBCrudPolicy, etc.)
-         - API Gateway events for each route
-         - Event source mappings (SQS, SNS, DynamoDB Streams, EventBridge)
+      For each Lambda in output/lambdas/:
+      - Read handler.py/handler.js to get handler function name
+      - Check requirements.txt/package.json for dependencies
+      - Determine runtime (python3.11, nodejs18.x, etc.)
+      - Identify AWS SDK calls (boto3, aws-sdk) to determine required permissions
       
-      4. DynamoDB Tables:
-         - AWS::DynamoDB::Table for each table in blueprint
-         - Partition key, sort key, GSI from actual code analysis
-         - BillingMode: PAY_PER_REQUEST
-         - DynamoDB Streams (if event-driven patterns detected)
+      **Step 1.2: Read Blueprint & Verify Schema**
+      - Read blueprint.json for architecture definition.
+      - Blueprint sections to analyze:
+        * metadata: Application info and feature flags (has_authentication, has_database, has_file_storage)
+        * lambda_functions: Lambda function definitions with source_files and entry_points
+        * dynamodb_tables: DynamoDB table definitions with schema_source_files
+        * s3_buckets: S3 bucket definitions (if file storage exists)
+        * cognito: Cognito User Pool configuration (if authentication exists)
+        * shared_layers: Lambda Layer definitions (if shared code exists)
+        * api_gateway: API Gateway configuration (type, CORS, authorizer)
+        * table_initialization: Seed data requirements (if initial data needed)
+        * dropped_functions: List of excluded endpoints/files
       
-      5. Step Functions (if statemachines/ exists):
-         - AWS::Serverless::StateMachine
-         - DefinitionUri pointing to .asl.json files
-         - IAM roles for state machine execution
+      - ⚠️ CRITICAL: For DynamoDB Tables, cross-reference blueprint definitions with actual code usage.
+        - If the code uses `table.get_item(Key={'id': ...})`, then 'id' MUST be the Partition Key.
+        - Ensure the template's AttributeDefinitions exactly match the KeySchema.
       
-      6. Lambda Layers (if layers/ exists):
-         - AWS::Serverless::LayerVersion for shared code
+      ============================================================
+      PHASE 2: GENERATE MAIN SAM TEMPLATE
+      ============================================================
       
-      7. Messaging & Events (if async processing exists):
-         - AWS::SQS::Queue for job queues
-         - AWS::SNS::Topic for pub/sub notifications
-         - AWS::Events::Rule for scheduled tasks
+      Create: output/template.yaml
       
-      8. Storage (if file handling exists):
-         - AWS::S3::Bucket for object storage
-         - Bucket policies and CORS configuration
+      **Refer to Knowledge Base "Standard SAM Template Structure" and "Resource Patterns" for:**
+      1.  **Header & Globals**: Runtime, timeout, tracing configuration.
+      2.  **Parameters**: Environment variables.
+      3.  **API Gateway**: If Cognito enabled, configure:
+          - Api.Auth.Authorizers.CognitoAuthorizer with UserPoolArn
+          - Api.Auth.DefaultAuthorizer: CognitoAuthorizer
+          - Each Lambda Events.Api.Auth.Authorizer: CognitoAuthorizer
+      4.  **Lambda Functions**: Define AWS::Serverless::Function resources using the CodeUri, Handler, and Env Vars found in your analysis.
+      5.  **DynamoDB Tables**:
+          ⭐ CRITICAL: Extract table schemas from ACTUAL SOURCE FILES, not just blueprint hints.
+          - Strategy 1: Read schema definition files (e.g., `dynamodb.py`, `models.py`) mentioned in analysis_report.
+          - Strategy 2: Analyze generated Lambda code for boto3 usage.
+          - ⚠️ userId fields: Always use AttributeType: S (String for Cognito Sub UUID)
+          - Add GSI with userId partition key if user-based queries needed
+          - Refer to "DynamoDB Table Pattern" in Knowledge Base.
+      6.  **Lambda Layers**: Define shared layers if present.
+      7.  **Outputs**: Export API Endpoint, Table Names, User Pool IDs.
       
-      9. WebSocket API (if real-time features exist):
-         - AWS::ApiGatewayV2::Api for WebSocket API
-         - AWS::ApiGatewayV2::Route for $connect, $disconnect, and custom routes
-         - AWS::ApiGatewayV2::Integration linking routes to Lambda functions
-         - AWS::ApiGatewayV2::Stage for deployment stages
+      ============================================================
+      PHASE 3: GENERATE COGNITO TEMPLATE (if needed)
+      ============================================================
       
-      10. Monitoring Resources (MANDATORY):
-          - AWS::Logs::LogGroup for each Lambda function (with retention policy)
-          - AWS::CloudWatch::Alarm for critical metrics (Lambda errors, API 4XX/5XX, DynamoDB throttles)
+      If blueprint.cognito.enabled == true:
+      - Create: output/cognito.yaml with:
+        * AWS::Cognito::UserPool (AutoVerifiedAttributes, UsernameAttributes, PasswordPolicy)
+        * AWS::Cognito::UserPoolClient (ExplicitAuthFlows: ALLOW_USER_PASSWORD_AUTH, ALLOW_REFRESH_TOKEN_AUTH)
+        * Post-Confirmation Trigger Lambda (if post_confirmation.enabled in blueprint)
+      - Refer to **"Cognito Template (Optional)"** in Knowledge Base for standard patterns.
       
-      11. Outputs:
-          - API Gateway endpoint URLs (REST/WebSocket)
-          - DynamoDB table names
-          - SQS queue URLs
-          - SNS topic ARNs
-          - S3 bucket names
-          - Cognito User Pool IDs (if auth used)
+      ============================================================
+      PHASE 4: GENERATE DEPLOYMENT CONFIGURATION
+      ============================================================
       
-      STEP 3: COGNITO TEMPLATE (if auth required)
-      If blueprint.auth_architecture includes Cognito:
-      Create output/cognito.yaml with:
-      - AWS::Cognito::UserPool
-      - AWS::Cognito::UserPoolClient
-      - Outputs: UserPoolId, UserPoolClientId
+      Create: output/samconfig.toml (optional but recommended)
+      - Default deployment parameters (region, stack name, capabilities)
+      - Refer to Knowledge Base for standard samconfig structure.
       
-      STEP 4: DEPLOYMENT CONFIGURATION
-      Create output/samconfig.toml (optional but recommended) with:
-      - Default deployment parameters
-      - Region, stack name, capabilities
+      ============================================================
+      PHASE 5: VALIDATION & REFINEMENT
+      ============================================================
       
-      STEP 5: VALIDATION
-      1. Run SAMValidateTool on template.yaml
-      2. Fix any cfn-lint errors (syntax, invalid properties)
-      3. Validate cognito.yaml if created
-      4. Verify consistency:
-         - Every Lambda directory has a SAM Function resource
-         - CodeUri paths are correct relative to template location
-         - Handler names match actual code
-         - Environment variables align with code usage
-         - IAM policies cover all boto3 calls in code
+      **Step 5.1: Run SAMValidateTool**
+      ```
+      SAMValidateTool.validate(template_yaml_content)
+      ```
+      If errors found:
+      - Analyze error message
+    
+      - Fix the issue
+      - Re-validate
       
-      Repeat validation until all templates pass.
+      **Step 5.2: Cross-Check with Code**
+      1. Every Lambda directory in output/lambdas/ → Has SAM Function resource
+      2. CodeUri paths are correct relative to template.yaml (e.g., "lambdas/user-service/")
+      3. Every boto3 call in code → Has corresponding IAM policy (Refer to "SAM Policy Templates Reference" in Knowledge Base)
+      4. Every env var in code → Defined in template
+      5. Every layer in output/layers/ → Has LayerVersion resource
       
-      CRITICAL: Templates must match the ACTUAL generated code structure,
-      not just the blueprint. Analyze the real output/ directory.
+      **Step 5.3: Verify Best Practices**
+      - All ARNs use !Ref or !GetAtt (no hardcoding)
+      - IAM policies use SAM policy templates when possible
+      - All outputs needed by external API clients are exported
+      - Sensitive values use AWS Secrets Manager or Parameter Store
       
-      IMPORTANT: Always include CloudWatch Log Groups and Alarms for production readiness,
-      even if not explicitly mentioned in blueprint. These are mandatory infrastructure.
-    expected_output: "Validated SAM template files in output/ directory (template.yaml and optionally cognito.yaml, samconfig.toml) that exactly match the generated application code and are ready for deployment with 'sam build && sam deploy'"
+      ============================================================
+      CRITICAL RULES
+      ============================================================
+      
+      1. **Code First**: Analyze actual generated code, not just blueprint
+      2. **Match Reality**: Handler names, runtimes must match actual files
+      3. **Least Privilege**: Use specific SAM policy templates (DynamoDBCrudPolicy, not full DynamoDB access)
+      4. **No Hardcoding**: Use !Ref, !Sub, !GetAtt for all resource references
+      5. **Complete Outputs**: Export all necessary resource identifiers (API URLs, Table names, User Pool IDs, etc.)
+      6. **Validate Always**: Must pass SAMValidateTool before finalizing
+      7. **Document**: Add comments for complex resources
+      8. **Split Wisely**: Separate Cognito if it's reusable across stacks
+    expected_output: |
+      Validated SAM templates in output/ directory:
+      - template.yaml (Lambdas, API Gateway, DynamoDB, S3, CloudWatch, Outputs)
+      - cognito.yaml (if auth enabled)
+      - samconfig.toml (optional)
+      
+      Ready for deployment with 'sam build && sam deploy'.

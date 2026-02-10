@@ -27,15 +27,6 @@ Resources:
           RequireLowercase: true
           RequireNumbers: true
           RequireSymbols: true
-      Schema:
-        - Name: email
-          AttributeDataType: String
-          Mutable: true
-          Required: true
-        - Name: username
-          AttributeDataType: String
-          Mutable: true
-          Required: true
       EmailConfiguration:
         EmailSendingAccount: COGNITO_DEFAULT
 

@@ -1,0 +1,16 @@
+{
+  "name": "get-item-by-id-function",
+  "version": "1.0.0",
+  "description": "Lambda function to get a todo item by ID",
+  "main": "handler.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "aws-sdk": "^2.1692.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

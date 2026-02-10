@@ -68,7 +68,6 @@ Parameters:
     Environment:
       Variables:
         TABLE_NAME: !Ref TableName
-        QUEUE_URL: !Ref QueueName
         BUCKET_NAME: !Ref BucketName
     
     # Shared Code Layers
@@ -80,8 +79,6 @@ Parameters:
       # Approach 1: SAM Policy Templates (Recommended)
       - DynamoDBCrudPolicy:
           TableName: !Ref TableName
-      - SQSSendMessagePolicy:
-          QueueName: !GetAtt QueueName.QueueName
       
       # Approach 2: Inline Policy (Fine-grained control)
       - Version: '2012-10-17'
@@ -89,6 +86,7 @@ Parameters:
           - Effect: Allow
             Action:
               - s3:GetObject
+              - s3:PutObject
             Resource: !Sub arn:aws:s3:::${BucketName}/*
           
           # AI/ML Services
@@ -123,49 +121,6 @@ Parameters:
           Path: /api/resource
           Method: GET
           RestApiId: !Ref MyApi
-      
-      # SQS Trigger
-      QueueEvent:
-        Type: SQS
-        Properties:
-          Queue: !GetAtt QueueName.Arn
-          BatchSize: 10
-      
-      # S3 Trigger
-      S3Event:
-        Type: S3
-        Properties:
-          Bucket: !Ref BucketName
-          Events: s3:ObjectCreated:*
-      
-      # Schedule Trigger
-      ScheduleEvent:
-        Type: Schedule
-        Properties:
-          Schedule: rate(5 minutes)
-      
-      # EventBridge Trigger
-      EventBridgeEvent:
-        Type: EventBridgeRule
-        Properties:
-          EventBusName: !Ref EventBus
-          Pattern:
-            source:
-              - custom.app
-      
-      # DynamoDB Stream Trigger
-      DynamoDBEvent:
-        Type: DynamoDB
-        Properties:
-          Stream: !GetAtt MyTable.StreamArn
-          StartingPosition: TRIM_HORIZON
-          BatchSize: 100
-      
-      # SNS Trigger
-      SNSEvent:
-        Type: SNS
-        Properties:
-          Topic: !Ref MyTopic
 ```
 
 ### API Gateway Pattern (REST API)
@@ -196,13 +151,6 @@ MyApi:
     AccessLogSetting:
       DestinationArn: !GetAtt ApiLogGroup.Arn
       Format: '$context.requestId $context.error.message'
-    
-    # Request Throttling (Optional)
-    MethodSettings:
-      - ResourcePath: "/*"
-        HttpMethod: "*"
-        ThrottlingBurstLimit: 100
-        ThrottlingRateLimit: 50
     
     # X-Ray Tracing (Recommended)
     TracingEnabled: true
@@ -244,19 +192,6 @@ ApiLogGroup:
     # Billing Mode (Pay-per-request recommended)
     BillingMode: PAY_PER_REQUEST
     
-    # Global Secondary Indexes (Optional)
-    GlobalSecondaryIndexes:
-      - IndexName: email-index
-        KeySchema:
-          - AttributeName: email
-            KeyType: HASH
-        Projection:
-          ProjectionType: ALL
-    
-    # Streaming (Required for event-driven architecture)
-    StreamSpecification:
-      StreamViewType: NEW_AND_OLD_IMAGES
-    
     # Server-side Encryption (Recommended)
     SSESpecification:
       SSEEnabled: true
@@ -269,90 +204,6 @@ ApiLogGroup:
     Tags:
       - Key: Environment
         Value: !Ref Environment
-```
-
-### SQS Queue Pattern
-```yaml
-{QueueName}:
-  Type: AWS::SQS::Queue
-  Properties:
-    QueueName: !Sub ${Environment}-{queue-name}
-    VisibilityTimeout: 300  # Should be greater than Lambda timeout
-    MessageRetentionPeriod: 345600  # 4 days
-    RedrivePolicy:
-      deadLetterTargetArn: !GetAtt {QueueName}DLQ.Arn
-      maxReceiveCount: 3
-
-{QueueName}DLQ:
-  Type: AWS::SQS::Queue
-  Properties:
-    QueueName: !Sub ${Environment}-{queue-name}-dlq
-    MessageRetentionPeriod: 1209600  # 14 days
-```
-
-### SNS Topic Pattern
-
-```yaml
-{TopicName}:
-  Type: AWS::SNS::Topic
-  Properties:
-    TopicName: !Sub ${Environment}-{topic-name}
-    DisplayName: "Topic Display Name"
-
-# Lambda Subscription (Auto-created using Events)
-{SubscriberFunction}:
-  Type: AWS::Serverless::Function
-  Properties:
-    # ... function properties ...
-    Events:
-      SnsTrigger:
-        Type: SNS
-        Properties:
-          Topic: !Ref {TopicName}
-```
-
-### EventBridge Rule Pattern
-
-**1. Scheduled Task**
-```yaml
-{RuleName}Scheduled:
-  Type: AWS::Events::Rule
-  Properties:
-    Name: !Sub ${Environment}-{rule-name}-schedule
-    ScheduleExpression: "rate(5 minutes)"  # or "cron(0 12 * * ? *)"
-    State: ENABLED
-    Targets:
-      - Arn: !GetAtt TargetFunction.Arn
-        Id: TargetFunctionV1
-
-{FunctionName}EventPermission:
-  Type: AWS::Lambda::Permission
-  Properties:
-    FunctionName: !Ref TargetFunction
-    Action: lambda:InvokeFunction
-    Principal: events.amazonaws.com
-    SourceArn: !GetAtt {RuleName}Scheduled.Arn
-```
-
-**2. Custom Events**
-```yaml
-{RuleName}Pattern:
-  Type: AWS::Events::Rule
-  Properties:
-    Name: !Sub ${Environment}-{rule-name}
-    EventBusName: !Ref EventBus
-    EventPattern:
-      source:
-        - "my.custom.app"
-      detail-type:
-        - "OrderPlaced"
-      detail:
-        status: 
-          - "created"
-    State: ENABLED
-    Targets:
-      - Arn: !GetAtt TargetFunction.Arn
-        Id: TargetFunctionV1
 ```
 
 ### S3 Bucket Pattern
@@ -379,46 +230,6 @@ ApiLogGroup:
         - AllowedOrigins: ["https://example.com"]
           AllowedMethods: [GET, PUT, POST]
           AllowedHeaders: ["*"]
-    
-    # Versioning (Recommended, allows recovery of deleted files)
-    VersioningConfiguration:
-      Status: Enabled
-    
-    # Lifecycle Rules (Optional)
-    LifecycleConfiguration:
-      Rules:
-        - Id: DeleteOldFiles
-          Status: Enabled
-          ExpirationInDays: 90
-```
-
-### Step Functions Pattern
-```yaml
-{WorkflowName}StateMachine:
-  Type: AWS::Serverless::StateMachine
-  Properties:
-    Name: !Sub ${Environment}-{workflow-name}
-    DefinitionUri: statemachines/{workflow}.asl.json
-    DefinitionSubstitutions:
-      Function1Arn: !GetAtt Function1.Arn
-      TableName: !Ref TableName
-    
-    # Required: Permission Policies
-    Policies:
-      - LambdaInvokePolicy:
-          FunctionName: !Ref Function1
-      - DynamoDBCrudPolicy:
-          TableName: !Ref TableName
-    
-    # Optional: Event Triggers
-    Events:
-      EventBridgeTrigger:
-        Type: EventBridgeRule
-        Properties:
-          EventBusName: !Ref EventBus
-          Pattern:
-            source:
-              - custom.app
 ```
 
 ### Lambda Layer Pattern
@@ -435,72 +246,6 @@ CommonLayer:
       - python3.11
       - python3.10
     RetentionPolicy: Retain  # Retain old versions (Lambda property)
-```
-
-### WebSocket API Pattern
-
-```yaml
-WebSocketApi:
-  Type: AWS::ApiGatewayV2::Api
-  Properties:
-    Name: !Sub ${Environment}-websocket-api
-    ProtocolType: WEBSOCKET
-    RouteSelectionExpression: "$request.body.action"
-
-# Connect Route
-ConnectRoute:
-  Type: AWS::ApiGatewayV2::Route
-  Properties:
-    ApiId: !Ref WebSocketApi
-    RouteKey: $connect
-    AuthorizationType: NONE
-    Target: !Join ['/', ['integrations', !Ref ConnectInteg]]
-
-ConnectInteg:
-  Type: AWS::ApiGatewayV2::Integration
-  Properties:
-    ApiId: !Ref WebSocketApi
-    IntegrationType: AWS_PROXY
-    IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OnConnectFunction.Arn}/invocations
-
-# Disconnect Route
-DisconnectRoute:
-  Type: AWS::ApiGatewayV2::Route
-  Properties:
-    ApiId: !Ref WebSocketApi
-    RouteKey: $disconnect
-    Target: !Join ['/', ['integrations', !Ref DisconnectInteg]]
-
-DisconnectInteg:
-  Type: AWS::ApiGatewayV2::Integration
-  Properties:
-    ApiId: !Ref WebSocketApi
-    IntegrationType: AWS_PROXY
-    IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OnDisconnectFunction.Arn}/invocations
-
-# Deployment
-Deployment:
-  Type: AWS::ApiGatewayV2::Deployment
-  DependsOn:
-    - ConnectRoute
-    - DisconnectRoute
-  Properties:
-    ApiId: !Ref WebSocketApi
-
-Stage:
-  Type: AWS::ApiGatewayV2::Stage
-  Properties:
-    StageName: !Ref Environment
-    DeploymentId: !Ref Deployment
-    ApiId: !Ref WebSocketApi
-
-# Lambda Permissions
-OnConnectPermission:
-  Type: AWS::Lambda::Permission
-  Properties:
-    Action: lambda:InvokeFunction
-    FunctionName: !Ref OnConnectFunction
-    Principal: apigateway.amazonaws.com
 ```
 
 ## 3. Monitoring Patterns
@@ -543,42 +288,6 @@ ApiErrorAlarm:
         Value: !Ref MyApi
     AlarmActions:
       - !Ref AlarmTopic
-
-# DynamoDB Throttling Alarm
-DynamoThrottleAlarm:
-  Type: AWS::CloudWatch::Alarm
-  Properties:
-    AlarmName: !Sub ${TableName}-throttles
-    ComparisonOperator: GreaterThanThreshold
-    EvaluationPeriods: 1
-    Metrics:
-      - Id: throttles
-        Expression: m1+m2
-      - Id: m1
-        MetricStat:
-          Metric:
-            Namespace: AWS/DynamoDB
-            MetricName: UserErrors
-            Dimensions:
-              - Name: TableName
-                Value: !Ref TableName
-          Period: 60
-          Stat: Sum
-        ReturnData: false
-      - Id: m2
-        MetricStat:
-          Metric:
-            Namespace: AWS/DynamoDB
-            MetricName: SystemErrors
-            Dimensions:
-              - Name: TableName
-                Value: !Ref TableName
-          Period: 60
-          Stat: Sum
-        ReturnData: false
-    Threshold: 0
-    AlarmActions:
-      - !Ref AlarmTopic
 ```
 
 ### CloudWatch Log Groups
@@ -619,15 +328,24 @@ UserPool:
   Properties:
     UserPoolName: !Sub ${Environment}-users
     
+    # Username Configuration (email as username)
+    UsernameAttributes:
+      - email
+    
     # Auto Verification
     AutoVerifiedAttributes:
       - email
     
-    # User Attributes
-    Schema:
-      - Name: email
-        Required: true
-        Mutable: false
+    # ⚠️ Schema is ONLY for custom attributes
+    # Standard attributes (email, phone_number, name, etc.) should NOT be defined here
+    # Custom attributes example (all custom attributes are optional by default):
+    # Schema:
+    #   - Name: department
+    #     AttributeDataType: String
+    #     Mutable: true
+    #   - Name: employee_id
+    #     AttributeDataType: String
+    #     Mutable: false
     
     # Password Policy
     Policies:
@@ -637,9 +355,6 @@ UserPool:
         RequireLowercase: true
         RequireNumbers: true
         RequireSymbols: false
-    
-    # MFA Configuration (Optional)
-    MfaConfiguration: OPTIONAL
 
 UserPoolClient:
   Type: AWS::Cognito::UserPoolClient
@@ -650,19 +365,6 @@ UserPoolClient:
     ExplicitAuthFlows:
       - ALLOW_USER_PASSWORD_AUTH
       - ALLOW_REFRESH_TOKEN_AUTH
-
-# Identity Pool (Federated Identities, Optional)
-IdentityPool:
-  Type: AWS::Cognito::IdentityPool
-  # ⚠️ Data Protection Policy
-  DeletionPolicy: Retain
-  UpdateReplacePolicy: Retain
-  Properties:
-    IdentityPoolName: !Sub ${Environment}Identity
-    AllowUnauthenticatedIdentities: false
-    CognitoIdentityProviders:
-      - ClientId: !Ref UserPoolClient
-        ProviderName: !GetAtt UserPool.ProviderName
 ```
 
 ## 5. Output Definitions
@@ -676,11 +378,6 @@ Outputs:
     Export:
       Name: !Sub ${AWS::StackName}-ApiUrl
   
-  # WebSocket URL
-  WebSocketUrl:
-    Description: WebSocket API endpoint
-    Value: !Sub "wss://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
-  
   # Table Name
   TableName:
     Description: DynamoDB table name
@@ -688,10 +385,12 @@ Outputs:
     Export:
       Name: !Sub ${AWS::StackName}-TableName
   
-  # Queue URL
-  QueueUrl:
-    Description: SQS queue URL
-    Value: !Ref MyQueue
+  # S3 Bucket Name
+  BucketName:
+    Description: S3 bucket name
+    Value: !Ref MyBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-BucketName
   
   # UserPool ID
   UserPoolId:
@@ -703,29 +402,43 @@ Outputs:
 
 ## 6. SAM Policy Templates Reference
 
-### Most Commonly Used Policy Templates (By actual usage frequency)
+### Most Commonly Used Policy Templates
 
 #### Database
-- `DynamoDBCrudPolicy` - Full DynamoDB operations
-- `DynamoDBReadPolicy` - DynamoDB read-only
-- `DynamoDBStreamReadPolicy` - Read DynamoDB streams
+- `DynamoDBCrudPolicy` - Full DynamoDB operations (GetItem, PutItem, UpdateItem, DeleteItem, Query, Scan)
+  ```yaml
+  - DynamoDBCrudPolicy:
+      TableName: !Ref MyTable
+  ```
+- `DynamoDBReadPolicy` - DynamoDB read-only operations (GetItem, Query, Scan)
+  ```yaml
+  - DynamoDBReadPolicy:
+      TableName: !Ref MyTable
+  ```
 
 #### Storage
-- `S3CrudPolicy` - Full S3 operations
-- `S3ReadPolicy` - S3 read-only
-- `S3WritePolicy` - S3 write-only
-
-#### Message Queues
-- `SQSSendMessagePolicy` - Send SQS messages
-- `SQSPollerPolicy` - Read and delete from SQS
-- `SNSPublishMessagePolicy` - Publish SNS messages
-
-#### Events
-- `EventBridgePutEventsPolicy` - Send EventBridge events
+- `S3CrudPolicy` - Full S3 operations (GetObject, PutObject, DeleteObject, ListBucket)
+  ```yaml
+  - S3CrudPolicy:
+      BucketName: !Ref MyBucket
+  ```
+- `S3ReadPolicy` - S3 read-only operations (GetObject, ListBucket)
+  ```yaml
+  - S3ReadPolicy:
+      BucketName: !Ref MyBucket
+  ```
+- `S3WritePolicy` - S3 write operations (PutObject, DeleteObject)
+  ```yaml
+  - S3WritePolicy:
+      BucketName: !Ref MyBucket
+  ```
 
 #### Compute
-- `LambdaInvokePolicy` - Invoke other Lambdas
-- `StepFunctionsExecutionPolicy` - Start Step Functions
+- `LambdaInvokePolicy` - Invoke other Lambda functions
+  ```yaml
+  - LambdaInvokePolicy:
+      FunctionName: !Ref AnotherFunction
+  ```
 
 #### Security
 - `AWSSecretsManagerGetSecretValuePolicy` - Get Secrets Manager secrets
@@ -890,18 +603,6 @@ Policies:
   - S3CrudPolicy:
       BucketName: !Ref MyBucket
   
-  # SQS Send Messages
-  - SQSSendMessagePolicy:
-      QueueName: !GetAtt MyQueue.QueueName
-  
-  # SNS Publish
-  - SNSPublishMessagePolicy:
-      TopicName: !GetAtt MyTopic.TopicName
-  
-  # Step Functions Execution
-  - StepFunctionsExecutionPolicy:
-      StateMachineName: !GetAtt MyStateMachine.Name
-  
   # Lambda Invocation
   - LambdaInvokePolicy:
       FunctionName: !Ref AnotherFunction
@@ -909,12 +610,6 @@ Policies:
   # Secrets Manager Read
   - AWSSecretsManagerGetSecretValuePolicy:
       SecretArn: !Ref MySecret
-  
-  # VPC Access (Required for Lambda in VPC)
-  - VPCAccessPolicy: {}
-  
-  # X-Ray Tracing (Automatically added when Global Tracing: Active)
-  - AWSXRayDaemonWriteAccess
 ```
 
 ### Policy Decision Tree
@@ -924,7 +619,6 @@ Need to access AWS resources?
 ├─ Yes → Use SAM Policy Template (Recommended)
 │   ├─ DynamoDB → DynamoDBCrudPolicy
 │   ├─ S3 → S3CrudPolicy
-│   ├─ SQS → SQSSendMessagePolicy
 │   └─ Others → Check list above
 │
 ├─ Need custom permissions? → Inline IAM Policy

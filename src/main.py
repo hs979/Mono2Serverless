@@ -4,117 +4,7 @@ import os
 import time
 from dotenv import load_dotenv
 
-# ⚠️ 关键：在导入 CrewAI 之前先 patch LiteLLM
-# 这样 CrewAI 导入时就会使用我们 patch 过的版本
-def early_patch_litellm():
-    """在导入 CrewAI 之前 patch LiteLLM"""
-    try:
-        import litellm
-        from functools import wraps
-        
-        # 导入监控模块（但不初始化，稍后初始化）
-        # 这里我们只是设置 patch，监控器稍后才创建
-        
-        # 保存原始方法
-        _original_completion = litellm.completion
-        _original_acompletion = litellm.acompletion if hasattr(litellm, 'acompletion') else None
-        
-        # 创建全局调用记录（临时，稍后会被监控器接管）
-        _temp_calls = []
-        
-        def patched_completion(*args, **kwargs):
-            start_time = time.time()
-            model = kwargs.get('model', args[0] if args else 'unknown')
-            
-            # 临时记录（稍后转移到监控器）
-            _temp_calls.append({
-                'type': 'sync',
-                'model': model,
-                'start_time': start_time
-            })
-            
-            print(f"[LLM PATCH] Sync call to: {model}")
-            
-            try:
-                result = _original_completion(*args, **kwargs)
-                end_time = time.time()
-                _temp_calls[-1]['end_time'] = end_time
-                _temp_calls[-1]['duration'] = end_time - start_time
-                _temp_calls[-1]['success'] = True
-                
-                # 尝试提取 token 信息
-                if hasattr(result, 'usage'):
-                    _temp_calls[-1]['tokens'] = {
-                        'prompt': getattr(result.usage, 'prompt_tokens', None),
-                        'completion': getattr(result.usage, 'completion_tokens', None),
-                        'total': getattr(result.usage, 'total_tokens', None)
-                    }
-                
-                return result
-            except Exception as e:
-                end_time = time.time()
-                _temp_calls[-1]['end_time'] = end_time
-                _temp_calls[-1]['duration'] = end_time - start_time
-                _temp_calls[-1]['success'] = False
-                _temp_calls[-1]['error'] = str(e)
-                raise
-        
-        async def patched_acompletion(*args, **kwargs):
-            start_time = time.time()
-            model = kwargs.get('model', args[0] if args else 'unknown')
-            
-            _temp_calls.append({
-                'type': 'async',
-                'model': model,
-                'start_time': start_time
-            })
-            
-            print(f"[LLM PATCH] Async call to: {model}")
-            
-            try:
-                result = await _original_acompletion(*args, **kwargs)
-                end_time = time.time()
-                _temp_calls[-1]['end_time'] = end_time
-                _temp_calls[-1]['duration'] = end_time - start_time
-                _temp_calls[-1]['success'] = True
-                
-                if hasattr(result, 'usage'):
-                    _temp_calls[-1]['tokens'] = {
-                        'prompt': getattr(result.usage, 'prompt_tokens', None),
-                        'completion': getattr(result.usage, 'completion_tokens', None),
-                        'total': getattr(result.usage, 'total_tokens', None)
-                    }
-                
-                return result
-            except Exception as e:
-                end_time = time.time()
-                _temp_calls[-1]['end_time'] = end_time
-                _temp_calls[-1]['duration'] = end_time - start_time
-                _temp_calls[-1]['success'] = False
-                _temp_calls[-1]['error'] = str(e)
-                raise
-        
-        # 应用 patch
-        litellm.completion = patched_completion
-        if _original_acompletion:
-            litellm.acompletion = patched_acompletion
-        
-        # 保存这些变量供后续使用
-        litellm._monitor_temp_calls = _temp_calls
-        litellm._monitor_original_completion = _original_completion
-        litellm._monitor_original_acompletion = _original_acompletion
-        
-        print("[EARLY PATCH] LiteLLM methods patched before CrewAI import")
-        return True
-        
-    except Exception as e:
-        print(f"[EARLY PATCH] Failed: {e}")
-        return False
-
-# 执行早期 patch
-early_patch_litellm()
-
-# 现在才导入 CrewAI（此时它会使用我们 patch 过的 litellm）
+# 现在才导入 CrewAI
 from crewai import Agent, Task, Crew
 from crewai.knowledge.source.text_file_knowledge_source import TextFileKnowledgeSource
 
@@ -165,9 +55,10 @@ def build_agents() -> dict:
         chunk_overlap=100  # 适当的重叠
     )
     
-    # Serverless 架构模式 Knowledge - 用于 Architect
-    serverless_patterns_knowledge = TextFileKnowledgeSource(
-        file_paths=["serverless_architecture_patterns.md"],
+    # Basic Serverless 架构 Knowledge - 用于 Architect
+    # 使用简化版的架构指南，专注于基本的serverless架构模式
+    basic_serverless_knowledge = TextFileKnowledgeSource(
+        file_paths=["basic_serverless_architecture.md"],
         chunk_size=800,
         chunk_overlap=100
     )
@@ -177,15 +68,15 @@ def build_agents() -> dict:
     # 1. Architect - 架构设计师
     arch_cfg = config["architect"]
     # 为 Architect 工具添加监控
-    arch_read = create_monitored_tool(ReadFileTool(ROOT_DIR), "architect")
-    arch_write = create_monitored_tool(WriteFileTool(ROOT_DIR), "architect")
+    arch_read = ReadFileTool(ROOT_DIR) # create_monitored_tool(ReadFileTool(ROOT_DIR), "architect")
+    arch_write = WriteFileTool(ROOT_DIR) # create_monitored_tool(WriteFileTool(ROOT_DIR), "architect")
     
     agents["architect"] = Agent(
         role=arch_cfg["role"],
         goal=arch_cfg["goal"],
         backstory=arch_cfg["backstory"],
         tools=[arch_read, arch_write],  # 需要write来输出blueprint.json
-        knowledge_sources=[serverless_patterns_knowledge],  # 添加架构模式知识库
+        knowledge_sources=[basic_serverless_knowledge],  # 添加基本serverless架构知识库
         embedder={
             "provider": "ollama",
             "config": {}
@@ -197,9 +88,9 @@ def build_agents() -> dict:
     # 2. Code Developer - 完整应用开发者
     code_cfg = config["code_developer"]
     # 为 Code Developer 工具添加监控
-    code_read = create_monitored_tool(ReadFileTool(ROOT_DIR), "code_developer")
-    code_rag = create_monitored_tool(CodeRAGTool(ROOT_DIR / "storage" / "code_index"), "code_developer")
-    code_write = create_monitored_tool(WriteFileTool(ROOT_DIR), "code_developer")
+    code_read = ReadFileTool(ROOT_DIR) # create_monitored_tool(ReadFileTool(ROOT_DIR), "code_developer")
+    code_rag = CodeRAGTool(ROOT_DIR / "storage" / "code_index") # create_monitored_tool(CodeRAGTool(ROOT_DIR / "storage" / "code_index"), "code_developer")
+    code_write = WriteFileTool(ROOT_DIR) # create_monitored_tool(WriteFileTool(ROOT_DIR), "code_developer")
     
     agents["code_developer"] = Agent(
         role=code_cfg["role"],
@@ -218,10 +109,10 @@ def build_agents() -> dict:
     # 3. SAM Engineer - SAM模板专家（替代原来的infra_engineer）
     sam_cfg = config["sam_engineer"]
     # 为 SAM Engineer 工具添加监控
-    sam_read = create_monitored_tool(ReadFileTool(ROOT_DIR), "sam_engineer")
-    sam_write = create_monitored_tool(WriteFileTool(ROOT_DIR), "sam_engineer")
-    sam_list = create_monitored_tool(FileListTool(ROOT_DIR), "sam_engineer")
-    sam_validate = create_monitored_tool(SAMValidateTool(), "sam_engineer")
+    sam_read = ReadFileTool(ROOT_DIR) # create_monitored_tool(ReadFileTool(ROOT_DIR), "sam_engineer")
+    sam_write = WriteFileTool(ROOT_DIR) # create_monitored_tool(WriteFileTool(ROOT_DIR), "sam_engineer")
+    sam_list = FileListTool(ROOT_DIR) # create_monitored_tool(FileListTool(ROOT_DIR), "sam_engineer")
+    sam_validate = SAMValidateTool() # create_monitored_tool(SAMValidateTool(), "sam_engineer")
     
     agents["sam_engineer"] = Agent(
         role=sam_cfg["role"],
@@ -385,6 +276,31 @@ def run_crew() -> None:
     print("  2. Configure deployment parameters")
     print("  3. Run: sam build && sam deploy --guided")
     
+    # 将执行期间 early patch 记录的 LLM 调用从临时列表转移到监控器（关键：必须在 kickoff 之后做）
+    try:
+        import litellm
+        if hasattr(litellm, '_monitor_temp_calls'):
+            temp_calls = litellm._monitor_temp_calls
+            if temp_calls:
+                print(f"\n[MONITOR] 将 {len(temp_calls)} 次 LLM 调用从 early patch 合并到性能报告...")
+                for call in temp_calls:
+                    tokens = call.get('tokens', {}) or {}
+                    monitor.record_llm_call(
+                        model=call.get('model', 'unknown'),
+                        prompt_tokens=tokens.get('prompt') if tokens else None,
+                        completion_tokens=tokens.get('completion') if tokens else None,
+                        total_tokens=tokens.get('total') if tokens else None,
+                        start_time=call.get('start_time'),
+                        end_time=call.get('end_time'),
+                        duration=call.get('duration'),
+                        success=call.get('success', True),
+                        error=call.get('error'),
+                        context=f"type={call.get('type', 'unknown')}"
+                    )
+            litellm._monitor_temp_calls.clear()
+    except Exception as e:
+        print(f"[MONITOR] 合并 LLM 调用记录时出错: {e}")
+
     # 保存性能报告
     print("\n" + "=" * 60)
     print("生成性能分析报告...")
