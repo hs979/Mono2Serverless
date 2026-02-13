@@ -1,0 +1,75 @@
+{
+  "session_id": "20260213_143306",
+  "total_duration_seconds": 6010.946388959885,
+  "summary": {
+    "total_duration_seconds": 6010.94851064682,
+    "llm_calls": {
+      "count": 0,
+      "total_time_seconds": 0,
+      "average_time_seconds": 0,
+      "percentage_of_total": 0.0
+    },
+    "tasks": {
+      "count": 3,
+      "total_time_seconds": 5868.073767185211
+    },
+    "tool_calls": {
+      "count": 0,
+      "total_time_seconds": 0,
+      "percentage_of_total": 0.0
+    },
+    "other_time_seconds": 6010.94851064682,
+    "other_percentage": 100.0
+  },
+  "llm_calls": [],
+  "task_times": [
+    {
+      "timestamp": "2026-02-13T14:45:10.353234",
+      "task_name": "Read storage/analysis_report.json and design a com",
+      "agent_name": "AWS Serverless Migration Architect",
+      "duration_seconds": 581.3501787185669,
+      "success": true,
+      "output_size": 595
+    },
+    {
+      "timestamp": "2026-02-13T15:39:43.303349",
+      "task_name": "Based on storage/blueprint.json, generate a COMPLE",
+      "agent_name": "Serverless Application Developer",
+      "duration_seconds": 3272.5386698246,
+      "success": true,
+      "output_size": 1953
+    },
+    {
+      "timestamp": "2026-02-13T16:13:17.594379",
+      "task_name": "Analyze output/ code and blueprint.json, then gene",
+      "agent_name": "AWS SAM Infrastructure-as-Code Specialist",
+      "duration_seconds": 2014.184918642044,
+      "success": true,
+      "output_size": 7636
+    }
+  ],
+  "agent_times": [
+    {
+      "timestamp": "2026-02-13T14:45:10.339382",
+      "agent_name": "AWS Serverless Migration Architect",
+      "action_type": "execute_task",
+      "duration_seconds": 581.3363263607025,
+      "details": "Task: N/A"
+    },
+    {
+      "timestamp": "2026-02-13T15:39:43.296280",
+      "agent_name": "Serverless Application Developer",
+      "action_type": "execute_task",
+      "duration_seconds": 3272.530590772629,
+      "details": "Task: N/A"
+    },
+    {
+      "timestamp": "2026-02-13T16:13:17.589716",
+      "agent_name": "AWS SAM Infrastructure-as-Code Specialist",
+      "action_type": "execute_task",
+      "duration_seconds": 2014.1731979846954,
+      "details": "Task: N/A"
+    }
+  ],
+  "tool_calls": []
+}

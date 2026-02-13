@@ -18,6 +18,7 @@ from llama_index.core import StorageContext, load_index_from_storage, Settings
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.response_synthesizers import get_response_synthesizer, ResponseMode
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.core.llms.mock import MockLLM
 
 
 from llama_index.core.base.response.schema import Response
@@ -30,6 +31,16 @@ class SimpleCodeFormatter(BaseSynthesizer):
     This synthesizer takes raw retrieval results and formats them into a
     structured, readable format with metadata. No LLM calls are made.
     """
+
+    def __init__(self, *args, **kwargs):
+        """
+        IMPORTANT:
+        BaseSynthesizer 默认会在 __init__ 中读取 Settings.llm（通常会解析到 OpenAI），
+        即便我们完全不需要 LLM，也会因此触发 OpenAI API Key 校验并报错。
+
+        这里显式注入一个 MockLLM，确保不会触发任何真实 LLM 加载/调用。
+        """
+        super().__init__(llm=MockLLM(), callback_manager=kwargs.get("callback_manager"))
     
     def _get_prompts(self):
         """Return empty prompts (not used in this synthesizer)."""

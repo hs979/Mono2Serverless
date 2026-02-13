@@ -1,0 +1,28 @@
+{
+  "session_id": "20260213_145436",
+  "total_duration_seconds": 4.272618770599365,
+  "summary": {
+    "total_duration_seconds": 4.272618770599365,
+    "llm_calls": {
+      "count": 0,
+      "total_time_seconds": 0,
+      "average_time_seconds": 0,
+      "percentage_of_total": 0.0
+    },
+    "tasks": {
+      "count": 0,
+      "total_time_seconds": 0
+    },
+    "tool_calls": {
+      "count": 0,
+      "total_time_seconds": 0,
+      "percentage_of_total": 0.0
+    },
+    "other_time_seconds": 4.272618770599365,
+    "other_percentage": 100.0
+  },
+  "llm_calls": [],
+  "task_times": [],
+  "agent_times": [],
+  "tool_calls": []
+}

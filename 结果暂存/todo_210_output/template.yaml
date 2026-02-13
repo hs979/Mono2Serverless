@@ -1,0 +1,271 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Todo serverless application infrastructure
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+    Tracing: Active
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+  UserPoolArn:
+    Type: String
+    Description: ARN of the Cognito User Pool (imported from Cognito stack)
+  UserPoolId:
+    Type: String
+    Description: ID of the Cognito User Pool (imported from Cognito stack)
+
+Resources:
+  # Shared DynamoDB Utilities Layer
+  DynamoDBUtilsLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub ${Environment}-dynamodb-utils
+      Description: Shared DynamoDB client configuration and helper functions
+      ContentUri: layers/dynamodb-utils/
+      CompatibleRuntimes:
+        - nodejs22.x
+      RetentionPolicy: Retain
+
+  # DynamoDB Tables
+  UserProfilesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-user-profiles
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+
+  TodosTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-todos
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: todoId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: todoId
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+
+  # API Gateway with Cognito Authorizer
+  TodoApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !Ref UserPoolArn
+      Cors:
+        AllowOrigin: "'*'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        MaxAge: 86400
+
+  # Lambda Functions
+  GetItemsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/GetItemsFunction/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref DynamoDBUtilsLayer
+      Environment:
+        Variables:
+          TODOS_TABLE: !Ref TodosTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TodosTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TodoApi
+            Path: /item
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  GetItemByIdFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/GetItemByIdFunction/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref DynamoDBUtilsLayer
+      Environment:
+        Variables:
+          TODOS_TABLE: !Ref TodosTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TodosTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TodoApi
+            Path: /item/{id}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  CreateItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/CreateItemFunction/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref DynamoDBUtilsLayer
+      Environment:
+        Variables:
+          TODOS_TABLE: !Ref TodosTable
+          USER_PROFILES_TABLE: !Ref UserProfilesTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodosTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserProfilesTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TodoApi
+            Path: /item
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  UpdateItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/UpdateItemFunction/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref DynamoDBUtilsLayer
+      Environment:
+        Variables:
+          TODOS_TABLE: !Ref TodosTable
+          USER_PROFILES_TABLE: !Ref UserProfilesTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodosTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserProfilesTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TodoApi
+            Path: /item/{id}
+            Method: PUT
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  MarkItemDoneFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/MarkItemDoneFunction/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref DynamoDBUtilsLayer
+      Environment:
+        Variables:
+          TODOS_TABLE: !Ref TodosTable
+          USER_PROFILES_TABLE: !Ref UserProfilesTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodosTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserProfilesTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TodoApi
+            Path: /item/{id}/done
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  DeleteItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/DeleteItemFunction/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref DynamoDBUtilsLayer
+      Environment:
+        Variables:
+          TODOS_TABLE: !Ref TodosTable
+          USER_PROFILES_TABLE: !Ref UserProfilesTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodosTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserProfilesTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TodoApi
+            Path: /item/{id}
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  PostConfirmationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/PostConfirmationFunction/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref DynamoDBUtilsLayer
+      Environment:
+        Variables:
+          USER_PROFILES_TABLE: !Ref UserProfilesTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserProfilesTable
+      Events: {}
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${TodoApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+    Export:
+      Name: !Sub ${AWS::StackName}-ApiUrl
+
+  UserProfilesTableName:
+    Description: UserProfiles DynamoDB table name
+    Value: !Ref UserProfilesTable
+    Export:
+      Name: !Sub ${AWS::StackName}-UserProfilesTableName
+
+  TodosTableName:
+    Description: Todos DynamoDB table name
+    Value: !Ref TodosTable
+    Export:
+      Name: !Sub ${AWS::StackName}-TodosTableName

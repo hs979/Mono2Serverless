@@ -31,7 +31,8 @@ class PerformanceMonitor:
         # 线程锁
         self._lock = threading.Lock()
         
-        print(f"📊 性能监控已启动 - Session ID: {self.session_id}")
+        # Use ASCII-only output for Windows consoles (GBK) to avoid UnicodeEncodeError.
+        print(f"[MONITOR] Performance monitoring started - Session ID: {self.session_id}")
     
     def record_llm_call(
         self,
@@ -64,10 +65,12 @@ class PerformanceMonitor:
             }
             self.llm_calls.append(record)
             
-            # 实时打印
-            print(f"🤖 LLM 调用 [{model}]: {duration:.2f}s | "
-                  f"Tokens: {total_tokens or 'N/A'} | "
-                  f"Context: {context or 'N/A'}")
+            # Real-time log (ASCII only)
+            print(
+                f"[LLM] Call [{model}]: {duration:.2f}s | "
+                f"Tokens: {total_tokens or 'N/A'} | "
+                f"Context: {context or 'N/A'}"
+            )
     
     def record_task(
         self,
@@ -91,7 +94,7 @@ class PerformanceMonitor:
             }
             self.task_times.append(record)
             
-            print(f"📋 Task 完成 [{task_name}]: {duration:.2f}s | Agent: {agent_name}")
+            print(f"[TASK] Completed [{task_name}]: {duration:.2f}s | Agent: {agent_name}")
     
     def record_agent_action(
         self,
@@ -133,7 +136,7 @@ class PerformanceMonitor:
             }
             self.tool_calls.append(record)
             
-            print(f"🔧 Tool 调用 [{tool_name}]: {duration:.3f}s | Agent: {agent_name}")
+            print(f"[TOOL] Call [{tool_name}]: {duration:.3f}s | Agent: {agent_name}")
     
     def start_timer(self) -> float:
         """开始计时"""
@@ -163,9 +166,9 @@ class PerformanceMonitor:
         with open(summary_file, "w", encoding="utf-8") as f:
             f.write(self._format_summary())
         
-        print(f"\n📊 性能报告已保存:")
-        print(f"  - 详细报告: {report_file}")
-        print(f"  - 统计摘要: {summary_file}")
+        print("\n[MONITOR] Performance report saved:")
+        print(f"  - Detailed report: {report_file}")
+        print(f"  - Summary report: {summary_file}")
         
         return report
     
@@ -221,45 +224,45 @@ class PerformanceMonitor:
             f"性能分析报告 - Session: {self.session_id}",
             "=" * 80,
             "",
-            f"📊 总执行时间: {total:.2f}秒 ({total/60:.2f}分钟)",
+            f"Total duration: {total:.2f}s ({total/60:.2f} min)",
             "",
             "=" * 80,
-            "🤖 LLM API 调用统计",
+            "LLM API Calls",
             "=" * 80,
-            f"  调用次数: {summary['llm_calls']['count']}",
-            f"  总耗时: {summary['llm_calls']['total_time_seconds']:.2f}秒",
-            f"  平均耗时: {summary['llm_calls']['average_time_seconds']:.2f}秒/次",
-            f"  占总时间比例: {summary['llm_calls']['percentage_of_total']:.1f}%",
+            f"  Count: {summary['llm_calls']['count']}",
+            f"  Total time: {summary['llm_calls']['total_time_seconds']:.2f}s",
+            f"  Avg time: {summary['llm_calls']['average_time_seconds']:.2f}s/call",
+            f"  Share of total: {summary['llm_calls']['percentage_of_total']:.1f}%",
             "",
             "=" * 80,
-            "📋 Task 执行统计",
+            "Tasks",
             "=" * 80,
-            f"  任务数量: {summary['tasks']['count']}",
-            f"  总耗时: {summary['tasks']['total_time_seconds']:.2f}秒",
+            f"  Count: {summary['tasks']['count']}",
+            f"  Total time: {summary['tasks']['total_time_seconds']:.2f}s",
             ""
         ]
         
         # 每个 Task 的详细时间
         if self.task_times:
-            lines.append("  各任务耗时:")
+            lines.append("  Per-task timing:")
             for task in self.task_times:
-                lines.append(f"    - {task['task_name']}: {task['duration_seconds']:.2f}秒 (Agent: {task['agent_name']})")
+                lines.append(f"    - {task['task_name']}: {task['duration_seconds']:.2f}s (Agent: {task['agent_name']})")
             lines.append("")
         
         lines.extend([
             "=" * 80,
-            "🔧 工具调用统计",
+            "Tool Calls",
             "=" * 80,
-            f"  调用次数: {summary['tool_calls']['count']}",
-            f"  总耗时: {summary['tool_calls']['total_time_seconds']:.2f}秒",
-            f"  占总时间比例: {summary['tool_calls']['percentage_of_total']:.1f}%",
+            f"  Count: {summary['tool_calls']['count']}",
+            f"  Total time: {summary['tool_calls']['total_time_seconds']:.2f}s",
+            f"  Share of total: {summary['tool_calls']['percentage_of_total']:.1f}%",
             "",
             "=" * 80,
-            "📈 时间分布",
+            "Time Distribution",
             "=" * 80,
-            f"  LLM API 调用: {summary['llm_calls']['percentage_of_total']:.1f}% ({summary['llm_calls']['total_time_seconds']:.2f}秒)",
-            f"  工具调用: {summary['tool_calls']['percentage_of_total']:.1f}% ({summary['tool_calls']['total_time_seconds']:.2f}秒)",
-            f"  其他处理: {summary['other_percentage']:.1f}% ({summary['other_time_seconds']:.2f}秒)",
+            f"  LLM API: {summary['llm_calls']['percentage_of_total']:.1f}% ({summary['llm_calls']['total_time_seconds']:.2f}s)",
+            f"  Tools: {summary['tool_calls']['percentage_of_total']:.1f}% ({summary['tool_calls']['total_time_seconds']:.2f}s)",
+            f"  Other: {summary['other_percentage']:.1f}% ({summary['other_time_seconds']:.2f}s)",
             "",
         ])
         
@@ -267,7 +270,7 @@ class PerformanceMonitor:
         if self.llm_calls:
             lines.extend([
                 "=" * 80,
-                "🤖 LLM 调用详细记录",
+                "LLM Call Details",
                 "=" * 80,
             ])
             for i, call in enumerate(self.llm_calls, 1):

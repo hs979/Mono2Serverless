@@ -17,6 +17,11 @@ def patch_crewai_llm():
     """
     try:
         import litellm
+
+        # 如果 main.py 已经做了 early patch（为了解决导入阶段绑定导致的拦截失效），
+        # 这里避免再次 patch，防止重复统计。
+        if getattr(litellm, "_monitor_early_patch_enabled", False):
+            return False
         
         patched_methods = []
         

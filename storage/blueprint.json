@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "application_name": "todo",
+    "application_name": "TodoApp",
     "architecture_pattern": "Basic Serverless Architecture",
     "has_authentication": true,
     "has_database": true,
@@ -8,89 +8,69 @@
   },
   "lambda_functions": [
     {
-      "name": "GetItemsFunction",
+      "name": "get-items",
       "runtime": "nodejs18.x",
-      "handler": "todo/routes/todo.js::GET__item",
+      "handler": "index.handler",
       "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
       "entry_points": ["GET /item"],
       "environment_variables": {
-        "TODOS_TABLE": "${TodosTable}"
+        "TODO_TABLE": "${TodoTable}"
       }
     },
     {
-      "name": "GetItemByIdFunction",
+      "name": "get-item-by-id",
       "runtime": "nodejs18.x",
-      "handler": "todo/routes/todo.js::GET__item__id",
+      "handler": "index.handler",
       "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
       "entry_points": ["GET /item/{id}"],
       "environment_variables": {
-        "TODOS_TABLE": "${TodosTable}"
+        "TODO_TABLE": "${TodoTable}"
       }
     },
     {
-      "name": "CreateItemFunction",
+      "name": "create-item",
       "runtime": "nodejs18.x",
-      "handler": "todo/routes/todo.js::POST__item",
+      "handler": "index.handler",
       "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
       "entry_points": ["POST /item"],
       "environment_variables": {
-        "TODOS_TABLE": "${TodosTable}",
-        "USER_PROFILES_TABLE": "${UserProfilesTable}"
+        "TODO_TABLE": "${TodoTable}"
       }
     },
     {
-      "name": "UpdateItemFunction",
+      "name": "update-item",
       "runtime": "nodejs18.x",
-      "handler": "todo/routes/todo.js::PUT__item__id",
+      "handler": "index.handler",
       "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
       "entry_points": ["PUT /item/{id}"],
       "environment_variables": {
-        "TODOS_TABLE": "${TodosTable}",
-        "USER_PROFILES_TABLE": "${UserProfilesTable}"
+        "TODO_TABLE": "${TodoTable}"
       }
     },
     {
-      "name": "MarkItemDoneFunction",
+      "name": "mark-item-done",
       "runtime": "nodejs18.x",
-      "handler": "todo/routes/todo.js::POST__item__id_done",
+      "handler": "index.handler",
       "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
       "entry_points": ["POST /item/{id}/done"],
       "environment_variables": {
-        "TODOS_TABLE": "${TodosTable}",
-        "USER_PROFILES_TABLE": "${UserProfilesTable}"
+        "TODO_TABLE": "${TodoTable}"
       }
     },
     {
-      "name": "DeleteItemFunction",
+      "name": "delete-item",
       "runtime": "nodejs18.x",
-      "handler": "todo/routes/todo.js::DELETE__item__id",
+      "handler": "index.handler",
       "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
       "entry_points": ["DELETE /item/{id}"],
       "environment_variables": {
-        "TODOS_TABLE": "${TodosTable}",
-        "USER_PROFILES_TABLE": "${UserProfilesTable}"
+        "TODO_TABLE": "${TodoTable}"
       }
-    },
-    {
-      "name": "PostConfirmationFunction",
-      "runtime": "nodejs18.x",
-      "handler": "todo/routes/auth.js::POST__register",
-      "source_files": ["todo/routes/auth.js", "todo/config/db.js"],
-      "entry_points": [],
-      "environment_variables": {
-        "USER_PROFILES_TABLE": "${UserProfilesTable}"
-      },
-      "is_cognito_trigger": true
     }
   ],
   "dynamodb_tables": [
     {
-      "logical_name": "UserProfiles",
-      "purpose": "Store user profile data (name) - credentials handled by Cognito",
-      "schema_source_files": ["todo/scripts/init-db.js", "todo/routes/auth.js"]
-    },
-    {
-      "logical_name": "Todos",
+      "logical_name": "Todo",
       "purpose": "Store todo items",
       "schema_source_files": ["todo/scripts/init-db.js", "todo/routes/todo.js"]
     }
@@ -98,53 +78,43 @@
   "s3_buckets": [],
   "cognito": {
     "enabled": true,
-    "user_pool_attributes": ["email", "name"],
+    "user_pool_attributes": ["email", "preferred_username"],
     "password_policy": {
-      "minimum_length": 8,
-      "require_symbols": true,
-      "require_numbers": true,
-      "require_uppercase": true,
-      "require_lowercase": true
+      "min_length": 6,
+      "require_symbols": false,
+      "require_numbers": false,
+      "require_uppercase": false,
+      "require_lowercase": false
     },
     "triggers": {
       "post_confirmation": {
-        "enabled": true,
-        "purpose": "Create user profile entry in UserProfiles table after successful registration",
-        "lambda_function": "PostConfirmationFunction"
+        "enabled": false,
+        "purpose": "No business initialization required; registration only creates credentials"
       }
     }
   },
   "shared_layers": [
     {
-      "name": "dynamodb-utils",
+      "name": "common-utils",
       "runtime": "nodejs18.x",
-      "description": "Shared DynamoDB client configuration and helper functions",
+      "description": "Shared DynamoDB client and utilities",
       "source_files": ["todo/config/db.js"],
-      "includes": ["DynamoDB DocumentClient configuration", "Database connection utilities"]
+      "includes": ["DynamoDB DocumentClient wrapper", "table names configuration"]
     }
   ],
   "api_gateway": {
     "type": "REST",
     "cors": {
       "allow_origins": ["*"],
-      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-      "allow_headers": ["Content-Type", "Authorization"],
-      "max_age": 86400
+      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     },
     "authorizer": "Cognito"
   },
   "table_initialization": [
     {
-      "table": "Todos",
+      "table": "Todo",
       "source_file": "todo/scripts/init-db.js",
-      "strategy": "Custom Resource Lambda during CloudFormation deployment",
-      "description": "Create table with userId (Cognito Sub) as partition key and todoId as sort key"
-    },
-    {
-      "table": "UserProfiles",
-      "source_file": "todo/scripts/init-db.js",
-      "strategy": "Custom Resource Lambda during CloudFormation deployment",
-      "description": "Create table with userId (Cognito Sub) as partition key"
+      "strategy": "Custom Resource Lambda during CloudFormation deployment"
     }
   ],
   "dropped_functions": [
@@ -152,49 +122,33 @@
       "item": "POST /register",
       "type": "endpoint",
       "reason": "Replaced by Cognito User Pool - Frontend calls AWS Amplify Auth.signUp()",
-      "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signUp({username: email, password, attributes: {email, name}})"
+      "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signUp({username, password, attributes: {email, preferred_username}})"
     },
     {
       "item": "POST /login",
       "type": "endpoint",
       "reason": "Replaced by Cognito User Pool - Frontend calls AWS Amplify Auth.signIn()",
-      "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signIn(email, password)"
+      "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signIn(username, password)"
     },
     {
-      "item": "authenticateToken middleware (todo/middleware/auth.js)",
+      "item": "authenticateToken middleware",
       "type": "code",
-      "reason": "Replaced by API Gateway Cognito Authorizer - Token validation at gateway layer, not in Lambda code",
-      "frontend_integration": "API Gateway automatically validates JWT tokens from Authorization header"
+      "reason": "Replaced by API Gateway Cognito Authorizer - Token validation at gateway layer, not in Lambda code"
     },
     {
-      "item": "verifyToken function (todo/utils/jwt.js)",
+      "item": "verifyToken and generateToken functions (utils/jwt.js)",
       "type": "code",
-      "reason": "Replaced by API Gateway Cognito Authorizer - Token validation at gateway layer, not in Lambda code",
-      "frontend_integration": "API Gateway automatically validates JWT tokens from Authorization header"
-    },
-    {
-      "item": "generateToken function (todo/utils/jwt.js)",
-      "type": "code",
-      "reason": "Replaced by Cognito User Pool - Tokens generated and managed by Cognito",
-      "frontend_integration": "Cognito automatically generates JWT tokens after successful authentication"
+      "reason": "Replaced by Cognito JWT tokens - Token generation and validation handled by Cognito"
     },
     {
       "item": "init-db.js script",
       "type": "script",
-      "reason": "Infrastructure script - Table creation handled by SAM template CloudFormation resources",
-      "frontend_integration": "N/A - Infrastructure deployment concern"
+      "reason": "Infrastructure script - Table creation handled by SAM template CloudFormation resources"
     },
     {
-      "item": "Users table (credentials: email, password_hash)",
+      "item": "Users table (credentials: username, password, email, createdAt)",
       "type": "table",
-      "reason": "User authentication moved to Cognito User Pool - Profile data (name) kept in UserProfiles table with Cognito Sub as key",
-      "frontend_integration": "N/A - Data migration concern"
-    },
-    {
-      "item": "bcryptjs password hashing",
-      "type": "code",
-      "reason": "Password management handled by Cognito User Pool with secure hashing",
-      "frontend_integration": "N/A - Cognito handles password security"
+      "reason": "User authentication moved to Cognito User Pool - Credentials table deleted; no UserProfiles needed as email can be stored as Cognito attribute and createdAt is managed by Cognito"
     }
   ]
 }

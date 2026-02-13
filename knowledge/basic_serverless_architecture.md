@@ -28,8 +28,22 @@ Client → API Gateway (REST API) → Lambda Functions → DynamoDB / S3
 
 ### 2. Lambda Functions
 - **Purpose**: Execute business logic in a serverless environment
-- **Design**: Map monolith endpoints to Lambda functions based on application complexity (Single vs Multi-domain)
-- **Principle**: Single-responsibility
+- **Design (STRICT)**: **ONE monolith API endpoint = ONE Lambda function**
+  - Treat an "endpoint" as **(HTTP method + path)**, e.g. `GET /items/{id}`.
+  - Even if endpoints share the same domain (e.g. many `/orders/*` routes), they are still **separate Lambda functions**.
+  - This enforces **responsibility separation**, simpler IAM scoping, simpler deployments, and clearer ownership per capability.
+- **Principle**: Single-responsibility (one handler does one thing)
+- **Folder Organization (recommended)**:
+  - You MAY group by **domain** at the folder level (recommended), but keep handlers split.
+  - **Domain is not a rigid naming rule**: infer it from the monolith’s modules/routes/controllers (keep its structure when it makes sense).
+  - Example (domainful):
+    - `lambdas/orders/get_order/handler.py`
+    - `lambdas/orders/create_order/handler.py`
+    - `lambdas/products/list_products/handler.py`
+  - Example (flat monolith / ambiguous domain): keep a simple layout, but still split handlers:
+    - `lambdas/get_item/handler.py`
+    - `lambdas/create_item/handler.py`
+  - Shared code goes to a **Lambda Layer** (or shared package), not a "mega handler".
 - **Handler Pattern**:
 ```python
 def lambda_handler(event, context):
@@ -54,13 +68,17 @@ def lambda_handler(event, context):
   - Keep table names, partition keys, sort keys unchanged
   - Preserve indexes (GSI/LSI) if they exist
   - Use `PAY_PER_REQUEST` billing mode for simplicity
-- **User Table**: Delete authentication fields (Cognito handles auth), keep only profile data as `UserProfiles`
+- **User Table (decision rule)**:
+  - If the monolith user table stores **only credentials/auth artifacts** (password/hash/salt/tokens) → **DELETE the entire table** (Cognito replaces it)
+  - If it stores **business profile data that your backend must read/write** (avatar, preferences, address, role, etc.) → split:
+    - Credentials → Cognito User Pool
+    - Business profile fields → DynamoDB `UserProfiles` (optional)
+  - If the only extra field is **`name` (or email/name/phone)** → prefer **Cognito standard attributes**; **do NOT create `UserProfiles` by default**
 
 ### 4. S3 (if file operations exist in monolith)
 - **Use Cases**:
   - File uploads from users
   - Generated files (PDFs, reports, images)
-  - Static assets
 
 **IMPORTANT**: Only add S3 if the monolith has explicit file handling code.
 
@@ -69,7 +87,10 @@ def lambda_handler(event, context):
 - **Configuration**: User attributes (email, name), password policy
 - **Auth Endpoints**: DELETE `/register`, `/login`, `/logout`, `/refresh-token` - clients call Cognito API directly
 - **Token Validation**: API Gateway uses Cognito Authorizer (no Lambda validation code)
-- **Post-Registration**: Use Post-Confirmation Trigger Lambda for business initialization logic
+- **Post-Registration (optional)**:
+  - Use a Post-Confirmation Trigger Lambda **ONLY if** the monolith registration flow performs **business initialization**
+    (e.g., create cart/default settings/seed user-owned business records/send welcome email).
+  - If registration only creates credentials/tokens (and/or sets Cognito attributes like name/email) → **no trigger needed**.
 
 ### 6. CloudWatch (always required)
 - **Log Groups**: One per Lambda function (retention: 7-30 days)
@@ -107,10 +128,12 @@ These files should NOT become Lambda functions:
 - Do NOT migrate this table to serverless
 - Do NOT create Lambda functions that write to this table
 
-**Exception**: If the user table also contains profile data:
+**Exception (optional)**: If the user table also contains business profile data that your backend must own:
 - Split into two parts:
   - Credentials → Cognito User Pool
-  - Profile data → DynamoDB `UserProfiles` table
+  - Business profile data → DynamoDB `UserProfiles` table
+
+**Note**: `name`/`email`/`phone` can be handled by Cognito standard attributes; don't create `UserProfiles` only for these.
 
 ### Rule 4: Do Not Add Missing Features
 - If monolith has NO authentication → Do NOT add Cognito
@@ -123,7 +146,9 @@ These files should NOT become Lambda functions:
 
 ## Blueprint JSON Structure
 
-The architecture blueprint should contain these sections:
+The architecture blueprint should contain these sections.
+
+Below are two typical patterns to avoid treating `UserProfiles` and `post_confirmation` as mandatory.
 
 ```json
 {
@@ -136,26 +161,21 @@ The architecture blueprint should contain these sections:
   },
   "lambda_functions": [
     {
-      "name": "user-service",
+      "name": "items-get-item",
       "runtime": "python3.11",
       "handler": "handler.lambda_handler",
-      "source_files": ["app/routes/users.py", "app/services/user_service.py"],
-      "entry_points": ["/users", "/users/{id}"],
+      "source_files": ["app/routes/items.py", "app/services/item_service.py"],
+      "entry_points": ["/items/{id}"],
       "environment_variables": {
-        "USER_PROFILES_TABLE": "${UserProfilesTable}"
+        "ITEMS_TABLE": "${ItemsTable}"
       }
     }
   ],
   "dynamodb_tables": [
     {
-      "logical_name": "UserProfiles",
-      "purpose": "Store user profile data (NOT credentials)",
-      "schema_source_files": ["app/models/user.py"]
-    },
-    {
-      "logical_name": "Orders",
-      "purpose": "Store order data",
-      "schema_source_files": ["app/models/order.py"]
+      "logical_name": "Items",
+      "purpose": "Store application items/resources",
+      "schema_source_files": ["app/models/item.py"]
     }
   ],
   "s3_buckets": [],
@@ -168,8 +188,8 @@ The architecture blueprint should contain these sections:
     },
     "triggers": {
       "post_confirmation": {
-        "enabled": true,
-        "purpose": "Create user profile in UserProfiles table"
+        "enabled": false,
+        "purpose": "Run post-signup business initialization (only if monolith requires it)"
       }
     }
   },
@@ -196,7 +216,7 @@ The architecture blueprint should contain these sections:
     },
     {
       "name": "Users table (credentials)",
-      "reason": "User authentication moved to Cognito"
+      "reason": "User authentication moved to Cognito; credentials table deleted (UserProfiles only if backend needs extra business profile fields)"
     }
   ]
 }
@@ -263,6 +283,7 @@ InitDynamoDBFunction:
 3. Delete auth endpoints (handled by Cognito)
 4. Preserve all business logic exactly
 5. Do not add features that don't exist in monolith
+6. **One API endpoint (method+path) → one Lambda (one handler file); group by domain only at folder level**
 
 **Success Criteria**:
 - All monolith API endpoints work in serverless

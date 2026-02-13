@@ -245,7 +245,6 @@ CommonLayer:
     CompatibleRuntimes:
       - python3.11
       - python3.10
-    RetentionPolicy: Retain  # Retain old versions (Lambda property)
 ```
 
 ## 3. Monitoring Patterns
@@ -365,6 +364,41 @@ UserPoolClient:
     ExplicitAuthFlows:
       - ALLOW_USER_PASSWORD_AUTH
       - ALLOW_REFRESH_TOKEN_AUTH
+```
+
+### Cognito Triggers (Avoid Circular Dependencies)
+
+**Recommended (SAM-native) pattern**: bind Cognito triggers from the Lambda side using `AWS::Serverless::Function` events.
+
+Why:
+- Avoids the circular dependency where API Gateway authorizers need the UserPool ARN, while the UserPool wants a trigger Lambda ARN.
+- SAM automatically generates `AWS::Lambda::Permission` so Cognito can invoke the function (no missing invoke permission).
+
+⚠️ Important:
+- ❌ Do NOT set `UserPool.Properties.LambdaConfig` to reference a Lambda ARN when using a single template.
+- ✅ Use SAM `Events: Cognito` instead.
+
+```yaml
+UserPool:
+  Type: AWS::Cognito::UserPool
+  Properties:
+    UserPoolName: !Sub ${Environment}-users
+    UsernameAttributes: [email]
+    AutoVerifiedAttributes: [email]
+    # ❌ Avoid LambdaConfig here to prevent circular dependency
+
+PostConfirmationFunction:
+  Type: AWS::Serverless::Function
+  Properties:
+    CodeUri: lambdas/PostConfirmationFunction/
+    Handler: handler.lambda_handler
+    Runtime: nodejs20.x
+    Events:
+      PostConfirmationTrigger:
+        Type: Cognito
+        Properties:
+          UserPool: !Ref UserPool
+          Trigger: PostConfirmation
 ```
 
 ## 5. Output Definitions

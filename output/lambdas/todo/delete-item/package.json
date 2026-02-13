@@ -1,0 +1,14 @@
+{
+  "name": "delete-item",
+  "version": "1.0.0",
+  "description": "Lambda function to delete a todo item",
+  "main": "handler.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "engines": {
+    "node": "18.x"
+  }
+}

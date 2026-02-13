@@ -1,0 +1,16 @@
+{
+  "name": "get-items",
+  "version": "1.0.0",
+  "description": "Lambda function to retrieve todo items",
+  "main": "handler.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": "18.x"
+  }
+}

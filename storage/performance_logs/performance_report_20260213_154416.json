@@ -1,0 +1,62 @@
+{
+  "session_id": "20260213_154416",
+  "total_duration_seconds": 3.860020637512207,
+  "summary": {
+    "total_duration_seconds": 3.860020637512207,
+    "llm_calls": {
+      "count": 3,
+      "total_time_seconds": 1.3430628776550293,
+      "average_time_seconds": 0.44768762588500977,
+      "percentage_of_total": 34.794189041451254
+    },
+    "tasks": {
+      "count": 0,
+      "total_time_seconds": 0
+    },
+    "tool_calls": {
+      "count": 0,
+      "total_time_seconds": 0,
+      "percentage_of_total": 0.0
+    },
+    "other_time_seconds": 2.5169577598571777,
+    "other_percentage": 65.20581095854874
+  },
+  "llm_calls": [
+    {
+      "timestamp": "2026-02-13T15:44:19.836061",
+      "model": "deepseek-chat",
+      "prompt_tokens": null,
+      "completion_tokens": null,
+      "total_tokens": null,
+      "duration_seconds": 1.233436107635498,
+      "success": false,
+      "error": "OpenAI API call failed: Error code: 401 - {'error': {'message': 'Authentication Fails, Your api key: ****vpx5 is invalid', 'type': 'authentication_error', 'param': None, 'code': 'invalid_request_error'}}",
+      "context": "source=crewai_event_bus, agent=Timing Smoke Test Agent, task=Reply with exactly: pong"
+    },
+    {
+      "timestamp": "2026-02-13T15:44:19.897801",
+      "model": "deepseek-chat",
+      "prompt_tokens": null,
+      "completion_tokens": null,
+      "total_tokens": null,
+      "duration_seconds": 0.056635141372680664,
+      "success": false,
+      "error": "OpenAI API call failed: Error code: 401 - {'error': {'message': 'Authentication Fails, Your api key: ****vpx5 is invalid', 'type': 'authentication_error', 'param': None, 'code': 'invalid_request_error'}}",
+      "context": "source=crewai_event_bus, agent=Timing Smoke Test Agent, task=Reply with exactly: pong"
+    },
+    {
+      "timestamp": "2026-02-13T15:44:19.961050",
+      "model": "deepseek-chat",
+      "prompt_tokens": null,
+      "completion_tokens": null,
+      "total_tokens": null,
+      "duration_seconds": 0.052991628646850586,
+      "success": false,
+      "error": "OpenAI API call failed: Error code: 401 - {'error': {'message': 'Authentication Fails, Your api key: ****vpx5 is invalid', 'type': 'authentication_error', 'param': None, 'code': 'invalid_request_error'}}",
+      "context": "source=crewai_event_bus, agent=Timing Smoke Test Agent, task=Reply with exactly: pong"
+    }
+  ],
+  "task_times": [],
+  "agent_times": [],
+  "tool_calls": []
+}

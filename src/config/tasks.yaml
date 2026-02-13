@@ -37,22 +37,22 @@ tasks:
       ============================================================
       
       **1. LAMBDA FUNCTIONS DESIGN**
-      Map endpoints to Lambda functions
-      ⚠️ CRITICAL DECISION - Check Application Type First:
+      Map endpoints to Lambda functions.
       
-      CASE A: Application has ONLY ONE main resource/topic (or only one remains after dropping Auth)
-      → ⚠️ CRITICAL: You MUST Split by Endpoint
-      → Create ONE separate Lambda function for EACH endpoint (e.g., GetItemFunction, CreateItemFunction)
-      → ❌ DO NOT group them into one "AppFunction"
-      → Ignore original file organization (even if all in one solid file)
-      → Rationale: Single-purpose functions are better for simple apps.
+      ⚠️ CRITICAL (STRICT RULE FOR THIS CONVERSION):
+      - Define an endpoint as **(HTTP method + path)**, e.g. `GET /items/{id}`.
+      - You MUST create **ONE separate Lambda function for EACH endpoint**.
+      - ❌ Do NOT group multiple endpoints into one Lambda (no "AppFunction", no internal router/switch).
+      - ✅ You MAY organize lambdas by **domain** for folders/naming, but handlers remain split.
       
-      CASE B: Application has MULTIPLE domains (e.g.,  /orders, /products)
-      → Consider following source code organization
-      
-      General Rule:
-      - Apply single-responsibility principle.
-      - Max 5-10 routes per Lambda (only relevant for CASE B).
+      Naming / organization guidance (keep LLM autonomy):
+      - Prefer clear, stable names that reflect intent, e.g. `{domain}-{action}` or `{method}-{resource}`.
+      - In `blueprint.lambda_functions[*].entry_points`, each Lambda should list **exactly one** route path.
+      - If the monolith has both `GET /items` and `POST /items`, they become **two** Lambdas.
+      - **Domain inference (NOT rigid)**:
+        - Derive `domain` by **reasoning from the monolith structure** (modules/packages/routes/controllers), not by string-splitting names.
+        - You MAY keep the monolith’s logical grouping (e.g., `orders`, `products`, `users`, `admin`) if it exists.
+        - If the monolith is flat or ambiguous, choose a reasonable domain grouping (e.g., `core`, `misc`) and document it in blueprint metadata/notes.
       ============================================================
       RULE 1: "DELETE, DON'T MIGRATE" - Auth Endpoints
       ============================================================
@@ -101,10 +101,13 @@ tasks:
       Step 1: Analyze Users table fields
       - Auth fields: password, password_hash, passwordHash, salt, token, refresh_token
       - Profile fields: name, bio, avatar, phone, preferences, address, role, created_at
+      - Cognito-managed fields (do NOT require UserProfiles by default): email, name, phone_number
+        (Only keep these in DynamoDB if monolith/business explicitly depends on querying them from your own DB)
       
       Step 2: Choose migration strategy
       - IF only auth fields → DELETE entire table, Cognito handles all, no UserProfiles needed
-      - IF has profile fields → CREATE UserProfiles table with profile fields only
+      - IF has profile fields AND backend must read/write them as business data → CREATE UserProfiles table with profile fields only
+      - IF the only extra field is "name" (or email/name/phone) → Prefer Cognito User Pool attributes; do NOT create UserProfiles
       
       Step 3: Define UserProfiles table (if needed)
       - Partition Key: userId (String - stores Cognito Sub UUID)
@@ -151,6 +154,10 @@ tasks:
       - This Lambda ONLY contains business logic (create cart, send email)
       - This Lambda does NOT handle passwords or authentication
       
+      When NOT to create this trigger:
+      - If monolith registration only creates credentials/tokens (no business-side effects)
+      - If user profile fields are fully managed by Cognito and no additional DB writes are required
+      
       Example Flow:
       1. User submits registration form
       2. Frontend calls AWS Amplify: Auth.signUp(email, password)
@@ -168,7 +175,8 @@ tasks:
         * password_policy: Define requirements (min_length, symbols, numbers, etc.)
         * triggers.post_confirmation: 
           - Analyze monolith register function for business logic
-          - If creates profile/cart/data → Set post_confirmation.enabled = true
+          - If it creates business data (e.g., cart/default settings/DB records beyond Cognito) → Set post_confirmation.enabled = true
+          - If it ONLY creates credentials/tokens (or only sets Cognito attributes like name/email) → Set post_confirmation.enabled = false
           - Document the business initialization logic
           - This becomes a separate Lambda triggered by Cognito (not exposed as API)
       
@@ -229,18 +237,18 @@ tasks:
          - has_file_storage: true/false (based on features)
       
       2. **lambda_functions**: Array of Lambda definitions
-         Note: Grouping strategy depends on endpoint complexity - can be one Lambda per endpoint (simple)
-               or grouped by domain (complex). Example shows grouped approach:
+         Note (STRICT): **ONE API endpoint (method+path) = ONE Lambda**.
+               - Do NOT group multiple endpoints into one Lambda (no internal routing).
+               - You MAY organize folders/names by domain (inferred from monolith structure), but handlers stay split.
          [
            {
-             "name": "user-service",
+             "name": "items-get-item",
              "runtime": "python3.11",
              "handler": "handler.lambda_handler",
-             "source_files": ["app/routes/users.py", "app/services/user_service.py"],
-             "entry_points": ["/users", "/users/{id}"],
+             "source_files": ["app/routes/items.py", "app/services/item_service.py"],
+             "entry_points": ["/items/{id}"],
              "environment_variables": {
-               "USER_PROFILES_TABLE": "${UserProfilesTable}",
-               "ORDERS_TABLE": "${OrdersTable}"
+               "ITEMS_TABLE": "${ItemsTable}"
              }
            }
          ]
@@ -248,14 +256,9 @@ tasks:
       3. **dynamodb_tables**: Array of table definitions (empty if no database)
          [
            {
-             "logical_name": "UserProfiles",
-             "purpose": "Store user profile data (NOT credentials)",
-             "schema_source_files": ["app/models/user.py"]
-           },
-           {
-             "logical_name": "Orders",
-             "purpose": "Store order data",
-             "schema_source_files": ["app/models/order.py"]
+             "logical_name": "Items",
+             "purpose": "Store application items/resources",
+             "schema_source_files": ["app/models/item.py"]
            }
          ]
       
@@ -275,7 +278,7 @@ tasks:
            "triggers": {
              "post_confirmation": {
                "enabled": true/false,
-               "purpose": "Create user profile after registration"
+               "purpose": "Run post-signup business initialization (ONLY if monolith requires it)"
              }
            }
          }
@@ -353,7 +356,7 @@ tasks:
            {
              "item": "Users table (credentials: email, password, password_hash, salt)",
              "type": "table",
-             "reason": "User authentication moved to Cognito User Pool - Profile data kept in UserProfiles table with Cognito Sub as key"
+             "reason": "User authentication moved to Cognito User Pool - Credentials table deleted; create UserProfiles ONLY if backend needs extra business profile fields"
            }
          ]
       
@@ -370,8 +373,8 @@ tasks:
       ✓ Auth middleware/decorators are DROPPED (token validation at API Gateway, not Lambda)
       ✓ Infrastructure scripts are dropped with proper reason
       ✓ API Gateway authorizer is "Cognito" (if auth exists), not "None"
-      ✓ Post-confirmation trigger is documented (if register function has business logic)
-      ✓ UserProfiles table uses Cognito Sub (UUID) as primary key, not auto-increment integer
+      ✓ Post-confirmation trigger is documented ONLY if register function has business-side effects
+      ✓ If UserProfiles table exists: it uses Cognito Sub (UUID) as primary key, not auto-increment integer
       ✓ Business tables foreign keys reference Cognito Sub, not integer user_id
       ✓ If monolith has no auth → cognito.enabled = false
       ✓ If monolith has no database → dynamodb_tables = []
@@ -416,10 +419,16 @@ tasks:
          Once relevant files are found via RAG, ALWAYS use ReadFileTool to get their full content.
       
       **Step 1.2: Transform to Lambda Handler**
-      Create: output/lambdas/{lambda_name}/handler.py (or .js)
+      Create: output/lambdas/{domain}/{lambda_name}/handler.py (or .js)
+      - `{domain}` is **chosen by reasoning** from the monolith’s code structure and route organization (do not use a rigid parsing rule).
+      - You MAY use `output/lambdas/{lambda_name}/handler.py` if the monolith has no clear domains, but prefer domain folders when sensible.
+      - Example (domainful): `output/lambdas/orders/orders-get-order/handler.py`
+      - Example (flat): `output/lambdas/get-item/handler.py`
       
       Key transformations:
       - Flask/Express routes → lambda_handler(event, context)
+      - ⚠️ STRICT: Each Lambda implements **ONLY ONE** endpoint (method+path) from `entry_points`
+      - ❌ Do NOT implement multiple routes inside one handler (no if/else routing)
       - Extract parameters from event['pathParameters'] / event['queryStringParameters']
       - Extract body from json.loads(event['body'])
       - Replace database calls: SQLite/MySQL → boto3 DynamoDB client
@@ -542,7 +551,7 @@ tasks:
       
       **Step 1.1: Scan Application Directory**
       Use FileListTool to scan output/ directory:
-      - output/lambdas/ - All Lambda function directories
+      - output/lambdas/ - All Lambda function directories (may be nested by domain)
       - output/layers/ - Lambda layer code (if exists)
       
       For each Lambda in output/lambdas/:
@@ -582,6 +591,9 @@ tasks:
           - Api.Auth.DefaultAuthorizer: CognitoAuthorizer
           - Each Lambda Events.Api.Auth.Authorizer: CognitoAuthorizer
       4.  **Lambda Functions**: Define AWS::Serverless::Function resources using the CodeUri, Handler, and Env Vars found in your analysis.
+          - ⚠️ CodeUri must match the **actual handler directory** on disk.
+            - Lambdas may be nested by domain (e.g., `output/lambdas/orders/orders-get-order/`)
+            - Or flat (e.g., `output/lambdas/get-item/`)
       5.  **DynamoDB Tables**:
           ⭐ CRITICAL: Extract table schemas from ACTUAL SOURCE FILES, not just blueprint hints.
           - Strategy 1: Read schema definition files (e.g., `dynamodb.py`, `models.py`) mentioned in analysis_report.
@@ -597,11 +609,20 @@ tasks:
       ============================================================
       
       If blueprint.cognito.enabled == true:
-      - Create: output/cognito.yaml with:
-        * AWS::Cognito::UserPool (AutoVerifiedAttributes, UsernameAttributes, PasswordPolicy)
-        * AWS::Cognito::UserPoolClient (ExplicitAuthFlows: ALLOW_USER_PASSWORD_AUTH, ALLOW_REFRESH_TOKEN_AUTH)
-        * Post-Confirmation Trigger Lambda (if post_confirmation.enabled in blueprint)
-      - Refer to **"Cognito Template (Optional)"** in Knowledge Base for standard patterns.
+      - ✅ Default: Generate ALL Cognito resources INSIDE `output/template.yaml` (single-stack).
+      - Create resources:
+        * AWS::Cognito::UserPool
+        * AWS::Cognito::UserPoolClient
+      - ✅ CRITICAL: Avoid circular dependency ("chicken-and-egg") between Cognito and Lambda.
+        * ❌ Do NOT configure `UserPool.Properties.LambdaConfig` to reference a Lambda ARN.
+        * ✅ If a post-confirmation trigger is needed, define it on the Lambda side using SAM events:
+          - AWS::Serverless::Function.Properties.Events.<Name>:
+              Type: Cognito
+              Properties:
+                UserPool: !Ref <UserPoolLogicalId>
+                Trigger: PostConfirmation
+          - Why: SAM will auto-create the required `AWS::Lambda::Permission` so Cognito can invoke the function.
+      - ⚠️ Only split into multiple templates if explicitly requested OR resource count approaches CloudFormation limits (rare).
       
       ============================================================
       PHASE 4: GENERATE DEPLOYMENT CONFIGURATION
@@ -627,7 +648,7 @@ tasks:
       
       **Step 5.2: Cross-Check with Code**
       1. Every Lambda directory in output/lambdas/ → Has SAM Function resource
-      2. CodeUri paths are correct relative to template.yaml (e.g., "lambdas/user-service/")
+      2. CodeUri paths are correct relative to template.yaml (match real directory structure under `output/lambdas/`)
       3. Every boto3 call in code → Has corresponding IAM policy (Refer to "SAM Policy Templates Reference" in Knowledge Base)
       4. Every env var in code → Defined in template
       5. Every layer in output/layers/ → Has LayerVersion resource
@@ -649,11 +670,13 @@ tasks:
       5. **Complete Outputs**: Export all necessary resource identifiers (API URLs, Table names, User Pool IDs, etc.)
       6. **Validate Always**: Must pass SAMValidateTool before finalizing
       7. **Document**: Add comments for complex resources
-      8. **Split Wisely**: Separate Cognito if it's reusable across stacks
+      8. **Single Template by Default**: Write everything to `output/template.yaml` unless explicitly requested to split or limits require it
+      9. **No Circular Dependencies**:
+         - Do not require deploying Stack A to obtain parameters needed to deploy Stack B if Stack B is also needed by Stack A
+         - Prefer SAM-native event sources (e.g., `Events: Cognito`) to auto-generate permissions and break dependency loops
     expected_output: |
       Validated SAM templates in output/ directory:
       - template.yaml (Lambdas, API Gateway, DynamoDB, S3, CloudWatch, Outputs)
-      - cognito.yaml (if auth enabled)
       - samconfig.toml (optional)
       
       Ready for deployment with 'sam build && sam deploy'.

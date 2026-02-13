@@ -1,0 +1,12 @@
+version = 0.1
+
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "todo-app"
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-xxxxxxxxxxxx"
+s3_prefix = "todo-app"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+parameter_overrides = "Environment=dev"

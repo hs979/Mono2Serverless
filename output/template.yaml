@@ -1,0 +1,279 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: TodoApp Serverless Infrastructure
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+    Tracing: Active
+  Api:
+    Cors:
+      AllowOrigin: "'*'"
+      AllowHeaders: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment
+
+Resources:
+  # Cognito User Pool
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${Environment}-todoapp-userpool
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 6
+          RequireLowercase: false
+          RequireNumbers: false
+          RequireSymbols: false
+          RequireUppercase: false
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: preferred_username
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub ${Environment}-todoapp-client
+      UserPoolId: !Ref UserPool
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      GenerateSecret: false
+      SupportedIdentityProviders:
+        - COGNITO
+
+  # DynamoDB Table
+  TodoTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-todo-items
+      AttributeDefinitions:
+        - AttributeName: cognito-username
+          AttributeType: S
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: cognito-username
+          KeyType: HASH
+        - AttributeName: id
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  # Shared Layer
+  CommonUtilsLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub ${Environment}-common-utils
+      Description: Shared DynamoDB utilities
+      ContentUri: layers/common-utils/
+      CompatibleRuntimes:
+        - nodejs22.x
+      RetentionPolicy: Retain
+
+  # API Gateway
+  TodoApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn
+      Cors:
+        AllowOrigin: "'*'"
+        AllowHeaders: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+
+  # Lambda Functions
+  GetItemsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/todo/get-items/
+      Handler: handler.handler
+      Runtime: nodejs22.x
+      Layers:
+        - !Ref CommonUtilsLayer
+      Environment:
+        Variables:
+          TODO_TABLE: !Ref TodoTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TodoTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TodoApi
+            Path: /item
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  GetItemByIdFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/todo/get-item-by-id/
+      Handler: handler.handler
+      Runtime: nodejs22.x
+      Layers:
+        - !Ref CommonUtilsLayer
+      Environment:
+        Variables:
+          TODO_TABLE: !Ref TodoTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TodoTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TodoApi
+            Path: /item/{id}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  CreateItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/todo/create-item/
+      Handler: handler.handler
+      Runtime: nodejs22.x
+      Layers:
+        - !Ref CommonUtilsLayer
+      Environment:
+        Variables:
+          TODO_TABLE: !Ref TodoTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TodoApi
+            Path: /item
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  UpdateItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/todo/update-item/
+      Handler: handler.handler
+      Runtime: nodejs22.x
+      Layers:
+        - !Ref CommonUtilsLayer
+      Environment:
+        Variables:
+          TODO_TABLE: !Ref TodoTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TodoApi
+            Path: /item/{id}
+            Method: PUT
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  MarkItemDoneFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/todo/mark-item-done/
+      Handler: handler.handler
+      Runtime: nodejs22.x
+      Layers:
+        - !Ref CommonUtilsLayer
+      Environment:
+        Variables:
+          TODO_TABLE: !Ref TodoTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TodoApi
+            Path: /item/{id}/done
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  DeleteItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/todo/delete-item/
+      Handler: handler.handler
+      Runtime: nodejs22.x
+      Layers:
+        - !Ref CommonUtilsLayer
+      Environment:
+        Variables:
+          TODO_TABLE: !Ref TodoTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TodoApi
+            Path: /item/{id}
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${TodoApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+    Export:
+      Name: !Sub ${AWS::StackName}-ApiUrl
+
+  TodoTableName:
+    Description: DynamoDB table name
+    Value: !Ref TodoTable
+    Export:
+      Name: !Sub ${AWS::StackName}-TodoTableName
+
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub ${AWS::StackName}-UserPoolId
+
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref UserPoolClient
+    Export:
+      Name: !Sub ${AWS::StackName}-UserPoolClientId
