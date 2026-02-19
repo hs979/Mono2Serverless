@@ -1,0 +1,40 @@
+{
+  "session_id": "20260219_135639",
+  "total_duration_seconds": 3.865771770477295,
+  "summary": {
+    "total_duration_seconds": 3.865771770477295,
+    "llm_calls": {
+      "count": 1,
+      "total_time_seconds": 1.7977893352508545,
+      "average_time_seconds": 1.7977893352508545,
+      "percentage_of_total": 46.505314901942256
+    },
+    "tasks": {
+      "count": 0,
+      "total_time_seconds": 0
+    },
+    "tool_calls": {
+      "count": 0,
+      "total_time_seconds": 0,
+      "percentage_of_total": 0.0
+    },
+    "other_time_seconds": 2.0679824352264404,
+    "other_percentage": 53.494685098057744
+  },
+  "llm_calls": [
+    {
+      "timestamp": "2026-02-19T13:56:43.815345",
+      "model": "deepseek-chat",
+      "prompt_tokens": null,
+      "completion_tokens": null,
+      "total_tokens": null,
+      "duration_seconds": 1.7977893352508545,
+      "success": true,
+      "error": null,
+      "context": "source=crewai_event_bus, agent=Timing Smoke Test Agent, task=Reply with exactly: pong"
+    }
+  ],
+  "task_times": [],
+  "agent_times": [],
+  "tool_calls": []
+}

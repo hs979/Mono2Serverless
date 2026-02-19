@@ -205,17 +205,7 @@ tasks:
       
       Result: Zero authentication code in Lambda functions
       
-      **5. SHARED LAYERS DESIGN**
-      
-      Identify common utility code across multiple Lambda functions:
-      - Database client wrappers (DynamoDB helper functions)
-      - Logging utilities (structured logging setup)
-      - Validation helpers (input validation, data sanitization)
-      
-      IF common code exists: Define layer with name, runtime, source_files, includes
-      ELSE: Set shared_layers = []
-      
-      **6. TABLE INITIALIZATION STRATEGY**
+      **5. TABLE INITIALIZATION STRATEGY**
       
       IF monolith has initial/seed data in init scripts:
       - Extract requirements from init_dynamodb.py or similar files
@@ -282,26 +272,16 @@ tasks:
              }
            }
          }
+       
       
-      6. **shared_layers**: Array of Lambda Layer definitions (empty if no shared code)
-         [
-           {
-             "name": "common-utils",
-             "runtime": "python3.11",
-             "description": "Shared utilities for all Lambda functions",
-             "source_files": ["app/utils/db_helper.py", "app/utils/logger.py", "app/utils/validators.py"],
-             "includes": ["database client wrappers", "logging utilities", "validation helpers"]
-           }
-         ]
-      
-      7. **api_gateway**: API Gateway configuration
+      6. **api_gateway**: API Gateway configuration
          {
            "type": "REST",
            "cors": {...},
            "authorizer": "Cognito" or "None"
          }
       
-      8. **table_initialization**: Table initialization strategy (if needed)
+      7. **table_initialization**: Table initialization strategy (if needed)
          [
            {
              "table": "Products",
@@ -310,7 +290,7 @@ tasks:
            }
          ]
       
-      9. **dropped_functions**: List of dropped items with detailed migration path
+      8. **dropped_functions**: List of dropped items with detailed migration path
          ⚠️ IMPORTANT: For each auth endpoint, specify how frontend should integrate
          [
            {
@@ -391,7 +371,7 @@ tasks:
       to generate working infrastructure.
     expected_output: |
       A complete blueprint.json at storage/blueprint.json with all sections populated:
-      metadata, lambda_functions, dynamodb_tables, s3_buckets, cognito, shared_layers, 
+      metadata, lambda_functions, dynamodb_tables, s3_buckets, cognito, 
       api_gateway, table_initialization, dropped_functions.
       
       Must preserve all monolith functionality and follow architecture principles.
@@ -451,39 +431,22 @@ tasks:
       - All userId fields: String type (Cognito Sub UUID)
       - Add proper error handling and logging
       
-      **Step 1.3: Dependencies**
-      Create: output/lambdas/{lambda_name}/requirements.txt
-      Include: boto3, any monolith dependencies needed.
+      **Step 1.3: Dependencies & Configuration**
+      - REFERENCE `analysis_report.json` (specifically `dependency_graph`) and scan source code `import`/`require` statements to determine dependencies.
+      - **For Python Lambdas**:
+        - Create `output/lambdas/{lambda_name}/requirements.txt`.
+        - MUST include `boto3` and any 3rd-party libraries found in the monolith's requirements that are used by this function.
+      - **For Node.js Lambdas**:
+        - Create `output/lambdas/{lambda_name}/package.json`.
+        - DO NOT create `requirements.txt`.
+        - **AWS SDK Rule**: Use AWS SDK v2 (`aws-sdk`). DO NOT use v3 (`@aws-sdk/*`).
+        - Ensure `package.json` includes all `require()` dependencies.
+        - Ensure `engines` field in `package.json` matches the target Node.js runtime.
       
-      ⚠️ CHECK: If heavy libraries (like Pandas, NumPy, Django) are detected:
-      - Create a Lambda Layer for them OR suggest lightweight alternatives in comments.
-      - Ensure the deployment package remains lightweight (< 250MB unzipped).
       
+
       ============================================================
-      PHASE 2: SHARED LAYERS (if defined in blueprint)
-      ============================================================
-      IF blueprint.shared_layers exists and is not empty:
-      
-      For EACH layer in blueprint.shared_layers:
-      - Read source_files specified in the layer definition
-      - Extract and adapt common code for Lambda environment (env vars, boto3 clients)
-      - Create layer structure: output/layers/{layer_name}/python/
-      - Place adapted code directly in: output/layers/{layer_name}/python/{module_name}.py
-      
-      Common shared utilities to extract:
-      - Database client wrappers (DynamoDB helper functions)
-      - Logging utilities (structured logging setup)
-      - Authentication helpers (if not using Cognito Authorizer)
-      - Validation utilities
-      - Common error handlers
-      
-      Directory structure example:
-      output/layers/common-utils/python/db_helper.py
-      output/layers/common-utils/python/logger.py
-      output/layers/common-utils/python/validators.py
-      
-      ============================================================
-      PHASE 3: DEPLOYMENT GUIDE
+      PHASE 2: DEPLOYMENT GUIDE
       ============================================================
       Create: output/README.md
       Include: 
@@ -511,7 +474,6 @@ tasks:
       
       YOUR RESPONSIBILITY:
       ✅ Generate Lambda function code (handler.py, handler.js)
-      ✅ Generate Lambda layer code (shared utilities)
       ✅ Generate dependency files (requirements.txt, package.json)
       ✅ Generate README.md documentation
       
@@ -520,7 +482,6 @@ tasks:
       ❌ template.yml
       ❌ serverless.yml
       ❌ cloudformation.yaml
-      ❌ cognito.yaml
       ❌ samconfig.toml
       ❌ Any AWS CloudFormation or SAM infrastructure-as-code files
       
@@ -529,15 +490,14 @@ tasks:
     expected_output: |
       Complete application code in output/ directory:
       - Lambda handlers and dependencies
-      - Shared layers (if needed)
       - README.md with deployment and frontend integration guide
       
-      ⚠️ NO infrastructure files (template.yaml, cognito.yaml) - sam_engineer creates those!
+      ⚠️ NO infrastructure files (template.yaml) - sam_engineer creates those!
 
   - id: generate_sam_templates
     agent: sam_engineer
     description: |
-      Analyze output/ code and blueprint.json, then generate SAM templates.
+      Analyze output/lambdas and storage/blueprint.json, then generate SAM templates.
       
       Your mission: Generate SAM template(s) that match the application code and blueprint.
       
@@ -552,23 +512,21 @@ tasks:
       **Step 1.1: Scan Application Directory**
       Use FileListTool to scan output/ directory:
       - output/lambdas/ - All Lambda function directories (may be nested by domain)
-      - output/layers/ - Lambda layer code (if exists)
       
       For each Lambda in output/lambdas/:
       - Read handler.py/handler.js to get handler function name
-      - Check requirements.txt/package.json for dependencies
+      - Check `requirements.txt` (for Python) or `package.json` (for Node.js) for dependencies
       - Determine runtime (python3.11, nodejs18.x, etc.)
       - Identify AWS SDK calls (boto3, aws-sdk) to determine required permissions
       
       **Step 1.2: Read Blueprint & Verify Schema**
-      - Read blueprint.json for architecture definition.
+      - Read storage/blueprint.json for architecture definition.
       - Blueprint sections to analyze:
         * metadata: Application info and feature flags (has_authentication, has_database, has_file_storage)
         * lambda_functions: Lambda function definitions with source_files and entry_points
         * dynamodb_tables: DynamoDB table definitions with schema_source_files
         * s3_buckets: S3 bucket definitions (if file storage exists)
         * cognito: Cognito User Pool configuration (if authentication exists)
-        * shared_layers: Lambda Layer definitions (if shared code exists)
         * api_gateway: API Gateway configuration (type, CORS, authorizer)
         * table_initialization: Seed data requirements (if initial data needed)
         * dropped_functions: List of excluded endpoints/files
@@ -601,8 +559,7 @@ tasks:
           - ⚠️ userId fields: Always use AttributeType: S (String for Cognito Sub UUID)
           - Add GSI with userId partition key if user-based queries needed
           - Refer to "DynamoDB Table Pattern" in Knowledge Base.
-      6.  **Lambda Layers**: Define shared layers if present.
-      7.  **Outputs**: Export API Endpoint, Table Names, User Pool IDs.
+      6.  **Outputs**: Export API Endpoint, Table Names, User Pool IDs.
       
       ============================================================
       PHASE 3: GENERATE COGNITO TEMPLATE (if needed)
@@ -651,7 +608,6 @@ tasks:
       2. CodeUri paths are correct relative to template.yaml (match real directory structure under `output/lambdas/`)
       3. Every boto3 call in code → Has corresponding IAM policy (Refer to "SAM Policy Templates Reference" in Knowledge Base)
       4. Every env var in code → Defined in template
-      5. Every layer in output/layers/ → Has LayerVersion resource
       
       **Step 5.3: Verify Best Practices**
       - All ARNs use !Ref or !GetAtt (no hardcoding)

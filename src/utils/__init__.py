@@ -27,6 +27,7 @@ from .crewai_monitor import (
 )
 
 from .crewai_event_monitor import install_crewai_llm_event_monitor
+from .crewai_tool_event_monitor import install_crewai_tool_event_monitor
 
 __all__ = [
     "PerformanceMonitor",
@@ -44,4 +45,5 @@ __all__ = [
     "patch_crewai_agent",
     "patch_crewai_task",
     "install_crewai_llm_event_monitor",
+    "install_crewai_tool_event_monitor",
 ]

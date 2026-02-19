@@ -248,6 +248,7 @@ from src.utils import (
     setup_litellm_callback,
     create_monitored_tool,
     install_crewai_llm_event_monitor,
+    install_crewai_tool_event_monitor,
     patch_crewai_all
 )
 
@@ -401,6 +402,7 @@ def run_crew() -> None:
     # Prefer CrewAI event-bus based LLM timing (provider-agnostic).
     # This makes LLM timing reliable even when CrewAI routes through native SDKs.
     install_crewai_llm_event_monitor()
+    install_crewai_tool_event_monitor()
     
     # 转移早期 patch 收集的临时数据到监控器
     try:

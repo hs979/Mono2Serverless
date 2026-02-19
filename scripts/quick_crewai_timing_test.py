@@ -61,6 +61,8 @@ def main() -> int:
     # Install provider-agnostic LLM timing via CrewAI event bus
     from src.utils import install_crewai_llm_event_monitor
     install_crewai_llm_event_monitor()
+    from src.utils import install_crewai_tool_event_monitor
+    install_crewai_tool_event_monitor()
 
     # Now run a minimal CrewAI kickoff.
     from crewai import Agent, Task, Crew
@@ -97,8 +99,10 @@ def main() -> int:
 
     report = monitor.save_report()
     llm_calls = report.get("llm_calls", [])
+    tool_calls = report.get("tool_calls", [])
 
     print(f"[quick_crewai_timing_test] llm_calls recorded: {len(llm_calls)}")
+    print(f"[quick_crewai_timing_test] tool_calls recorded: {len(tool_calls)}")
     if llm_calls:
         print("[quick_crewai_timing_test] last llm_call record:")
         print(llm_calls[-1])

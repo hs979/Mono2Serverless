@@ -232,21 +232,6 @@ ApiLogGroup:
           AllowedHeaders: ["*"]
 ```
 
-### Lambda Layer Pattern
-```yaml
-CommonLayer:
-  Type: AWS::Serverless::LayerVersion
-  # ⚠️ Optional: Retain layer versions to avoid breaking dependent Lambdas
-  DeletionPolicy: Retain
-  Properties:
-    LayerName: !Sub ${Environment}-common-dependencies
-    Description: Shared dependencies
-    ContentUri: layers/common/
-    CompatibleRuntimes:
-      - python3.11
-      - python3.10
-```
-
 ## 3. Monitoring Patterns
 
 ### CloudWatch Alarms

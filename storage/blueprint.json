@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "application_name": "TodoApp",
+    "application_name": "bookstore",
     "architecture_pattern": "Basic Serverless Architecture",
     "has_authentication": true,
     "has_database": true,
@@ -8,113 +8,194 @@
   },
   "lambda_functions": [
     {
-      "name": "get-items",
+      "name": "books-get-all",
       "runtime": "nodejs18.x",
-      "handler": "index.handler",
-      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
-      "entry_points": ["GET /item"],
+      "handler": "handler.lambda_handler",
+      "source_files": ["bookstore/routes/books.js"],
+      "entry_points": ["GET /books"],
       "environment_variables": {
-        "TODO_TABLE": "${TodoTable}"
+        "BOOKS_TABLE": "${BooksTable}"
       }
     },
     {
-      "name": "get-item-by-id",
+      "name": "books-get-by-id",
       "runtime": "nodejs18.x",
-      "handler": "index.handler",
-      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
-      "entry_points": ["GET /item/{id}"],
+      "handler": "handler.lambda_handler",
+      "source_files": ["bookstore/routes/books.js"],
+      "entry_points": ["GET /books/{id}"],
       "environment_variables": {
-        "TODO_TABLE": "${TodoTable}"
+        "BOOKS_TABLE": "${BooksTable}"
       }
     },
     {
-      "name": "create-item",
+      "name": "cart-get-all",
       "runtime": "nodejs18.x",
-      "handler": "index.handler",
-      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
-      "entry_points": ["POST /item"],
+      "handler": "handler.lambda_handler",
+      "source_files": ["bookstore/routes/cart.js"],
+      "entry_points": ["GET /cart"],
       "environment_variables": {
-        "TODO_TABLE": "${TodoTable}"
+        "CART_TABLE": "${CartTable}"
       }
     },
     {
-      "name": "update-item",
+      "name": "cart-get-by-bookid",
       "runtime": "nodejs18.x",
-      "handler": "index.handler",
-      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
-      "entry_points": ["PUT /item/{id}"],
+      "handler": "handler.lambda_handler",
+      "source_files": ["bookstore/routes/cart.js"],
+      "entry_points": ["GET /cart/{bookId}"],
       "environment_variables": {
-        "TODO_TABLE": "${TodoTable}"
+        "CART_TABLE": "${CartTable}"
       }
     },
     {
-      "name": "mark-item-done",
+      "name": "cart-create",
       "runtime": "nodejs18.x",
-      "handler": "index.handler",
-      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
-      "entry_points": ["POST /item/{id}/done"],
+      "handler": "handler.lambda_handler",
+      "source_files": ["bookstore/routes/cart.js"],
+      "entry_points": ["POST /cart"],
       "environment_variables": {
-        "TODO_TABLE": "${TodoTable}"
+        "CART_TABLE": "${CartTable}"
       }
     },
     {
-      "name": "delete-item",
+      "name": "cart-update",
       "runtime": "nodejs18.x",
-      "handler": "index.handler",
-      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
-      "entry_points": ["DELETE /item/{id}"],
+      "handler": "handler.lambda_handler",
+      "source_files": ["bookstore/routes/cart.js"],
+      "entry_points": ["PUT /cart"],
       "environment_variables": {
-        "TODO_TABLE": "${TodoTable}"
+        "CART_TABLE": "${CartTable}"
+      }
+    },
+    {
+      "name": "cart-delete",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambda_handler",
+      "source_files": ["bookstore/routes/cart.js"],
+      "entry_points": ["DELETE /cart"],
+      "environment_variables": {
+        "CART_TABLE": "${CartTable}"
+      }
+    },
+    {
+      "name": "orders-get-all",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambda_handler",
+      "source_files": ["bookstore/routes/orders.js"],
+      "entry_points": ["GET /orders"],
+      "environment_variables": {
+        "ORDERS_TABLE": "${OrdersTable}"
+      }
+    },
+    {
+      "name": "orders-create",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambda_handler",
+      "source_files": ["bookstore/routes/orders.js"],
+      "entry_points": ["POST /orders"],
+      "environment_variables": {
+        "ORDERS_TABLE": "${OrdersTable}",
+        "BOOKS_TABLE": "${BooksTable}",
+        "CART_TABLE": "${CartTable}"
+      }
+    },
+    {
+      "name": "bestsellers-get-all",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambda_handler",
+      "source_files": ["bookstore/routes/bestsellers.js"],
+      "entry_points": ["GET /bestsellers"],
+      "environment_variables": {
+        "REDIS_ENDPOINT": "${RedisEndpoint}"
+      }
+    },
+    {
+      "name": "recommendations-get-all",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambda_handler",
+      "source_files": ["bookstore/routes/recommendations.js"],
+      "entry_points": ["GET /recommendations"],
+      "environment_variables": {
+        "NEPTUNE_ENDPOINT": "${NeptuneEndpoint}"
+      }
+    },
+    {
+      "name": "recommendations-get-by-bookid",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambda_handler",
+      "source_files": ["bookstore/routes/recommendations.js"],
+      "entry_points": ["GET /recommendations/{bookId}"],
+      "environment_variables": {
+        "NEPTUNE_ENDPOINT": "${NeptuneEndpoint}"
+      }
+    },
+    {
+      "name": "search-get",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambda_handler",
+      "source_files": ["bookstore/routes/search.js"],
+      "entry_points": ["GET /search"],
+      "environment_variables": {
+        "ELASTICSEARCH_ENDPOINT": "${ElasticsearchEndpoint}",
+        "BOOKS_TABLE": "${BooksTable}"
       }
     }
   ],
   "dynamodb_tables": [
     {
-      "logical_name": "Todo",
-      "purpose": "Store todo items",
-      "schema_source_files": ["todo/scripts/init-db.js", "todo/routes/todo.js"]
+      "logical_name": "UserProfiles",
+      "purpose": "Store user profile data (name, etc.) - credentials handled by Cognito",
+      "schema_source_files": ["bookstore/routes/auth.js", "bookstore/scripts/init-db.js"]
+    },
+    {
+      "logical_name": "Books",
+      "purpose": "Store book catalog information",
+      "schema_source_files": ["bookstore/scripts/init-db.js"]
+    },
+    {
+      "logical_name": "Cart",
+      "purpose": "Store user shopping cart items",
+      "schema_source_files": ["bookstore/scripts/init-db.js"]
+    },
+    {
+      "logical_name": "Orders",
+      "purpose": "Store user orders",
+      "schema_source_files": ["bookstore/scripts/init-db.js"]
     }
   ],
   "s3_buckets": [],
   "cognito": {
     "enabled": true,
-    "user_pool_attributes": ["email", "preferred_username"],
+    "user_pool_attributes": ["email", "name"],
     "password_policy": {
-      "min_length": 6,
-      "require_symbols": false,
-      "require_numbers": false,
-      "require_uppercase": false,
-      "require_lowercase": false
+      "min_length": 8,
+      "require_symbols": true,
+      "require_numbers": true,
+      "require_lowercase": true,
+      "require_uppercase": true
     },
     "triggers": {
       "post_confirmation": {
-        "enabled": false,
-        "purpose": "No business initialization required; registration only creates credentials"
+        "enabled": true,
+        "purpose": "Create user profile in UserProfiles table after successful registration with name attribute"
       }
     }
   },
-  "shared_layers": [
-    {
-      "name": "common-utils",
-      "runtime": "nodejs18.x",
-      "description": "Shared DynamoDB client and utilities",
-      "source_files": ["todo/config/db.js"],
-      "includes": ["DynamoDB DocumentClient wrapper", "table names configuration"]
-    }
-  ],
   "api_gateway": {
     "type": "REST",
     "cors": {
       "allow_origins": ["*"],
-      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "allow_headers": ["Content-Type", "Authorization", "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"],
+      "max_age": 86400
     },
     "authorizer": "Cognito"
   },
   "table_initialization": [
     {
-      "table": "Todo",
-      "source_file": "todo/scripts/init-db.js",
-      "strategy": "Custom Resource Lambda during CloudFormation deployment"
+      "table": "Books",
+      "source_file": "bookstore/scripts/init-db.js",
+      "strategy": "Custom Resource Lambda during CloudFormation deployment to seed sample books"
     }
   ],
   "dropped_functions": [
@@ -122,7 +203,7 @@
       "item": "POST /register",
       "type": "endpoint",
       "reason": "Replaced by Cognito User Pool - Frontend calls AWS Amplify Auth.signUp()",
-      "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signUp({username, password, attributes: {email, preferred_username}})"
+      "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signUp({username: email, password, attributes: {email, name}})"
     },
     {
       "item": "POST /login",
@@ -131,24 +212,41 @@
       "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signIn(username, password)"
     },
     {
-      "item": "authenticateToken middleware",
+      "item": "POST /refresh",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito automatic token refresh",
+      "frontend_integration": "AWS Amplify automatically refreshes tokens - no code needed"
+    },
+    {
+      "item": "GET /me",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito User Pool - Frontend calls AWS Amplify Auth.currentAuthenticatedUser()",
+      "frontend_integration": "import { Auth } from 'aws-amplify'; const user = await Auth.currentAuthenticatedUser()"
+    },
+    {
+      "item": "authMiddleware",
       "type": "code",
       "reason": "Replaced by API Gateway Cognito Authorizer - Token validation at gateway layer, not in Lambda code"
     },
     {
-      "item": "verifyToken and generateToken functions (utils/jwt.js)",
+      "item": "optionalAuthMiddleware",
       "type": "code",
-      "reason": "Replaced by Cognito JWT tokens - Token generation and validation handled by Cognito"
+      "reason": "Replaced by API Gateway Cognito Authorizer with optional routes handled at application level"
     },
     {
-      "item": "init-db.js script",
+      "item": "bookstore/scripts/init-db.js",
       "type": "script",
       "reason": "Infrastructure script - Table creation handled by SAM template CloudFormation resources"
     },
     {
-      "item": "Users table (credentials: username, password, email, createdAt)",
+      "item": "Users table (credentials: email, password, password_hash, salt)",
       "type": "table",
-      "reason": "User authentication moved to Cognito User Pool - Credentials table deleted; no UserProfiles needed as email can be stored as Cognito attribute and createdAt is managed by Cognito"
+      "reason": "User authentication moved to Cognito User Pool - Credentials table deleted; create UserProfiles table for name and profile data"
+    },
+    {
+      "item": "verifyToken middleware / JWT validation code",
+      "type": "code",
+      "reason": "Replaced by API Gateway Cognito Authorizer - Token validation at gateway layer, not in Lambda code"
     }
   ]
 }
