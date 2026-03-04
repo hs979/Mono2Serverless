@@ -1,0 +1,9 @@
+{
+  "name": "orders-get-all",
+  "version": "1.0.0",
+  "description": "Lambda function to get all orders",
+  "dependencies": {},
+  "engines": {
+    "node": "18.x"
+  }
+}

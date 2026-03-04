@@ -1,0 +1,14 @@
+version = 0.1
+
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "shopping-cart-228"
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-xxxxxxxxxxxx"
+s3_prefix = "shopping-cart-228"
+region = "us-east-2"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
+image_repositories = []
+resolve_s3 = true
+parameter_overrides = "Environment=\"dev\""

@@ -1,0 +1,196 @@
+{
+  "metadata": {
+    "application_name": "TodoMonolith",
+    "architecture_pattern": "Basic Serverless Architecture",
+    "has_authentication": true,
+    "has_database": true,
+    "has_file_storage": false
+  },
+  "communication_strategy": "sdk_direct_invocation",
+  "common_dependencies": {
+    "nodejs": ["aws-sdk", "uuid"]
+  },
+  "lambda_layers": [
+    {
+      "name": "base-node-utils",
+      "runtime_family": "nodejs",
+      "compatible_runtimes": ["nodejs18.x"],
+      "dependencies": ["aws-sdk", "uuid"],
+      "purpose": "Common AWS SDK and utilities used by all Lambda functions"
+    }
+  ],
+  "lambda_functions": [
+    {
+      "name": "todo-get-items",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
+      "entry_points": ["GET /item"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "TODO_TABLE": "${TodoTable}"
+      }
+    },
+    {
+      "name": "todo-get-item-by-id",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
+      "entry_points": ["GET /item/{id}"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "TODO_TABLE": "${TodoTable}"
+      }
+    },
+    {
+      "name": "todo-create-item",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
+      "entry_points": ["POST /item"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "TODO_TABLE": "${TodoTable}"
+      }
+    },
+    {
+      "name": "todo-update-item",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
+      "entry_points": ["PUT /item/{id}"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "TODO_TABLE": "${TodoTable}"
+      }
+    },
+    {
+      "name": "todo-mark-item-done",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
+      "entry_points": ["POST /item/{id}/done"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "TODO_TABLE": "${TodoTable}"
+      }
+    },
+    {
+      "name": "todo-delete-item",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
+      "entry_points": ["DELETE /item/{id}"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "TODO_TABLE": "${TodoTable}"
+      }
+    }
+  ],
+  "dynamodb_tables": [
+    {
+      "logical_name": "TodoTable",
+      "purpose": "Store todo items with user association",
+      "schema_source_files": ["todo/scripts/init-db.js", "todo/config/db.js"],
+      "migration_notes": "Original key: cognito-username (HASH), id (RANGE). Migrated to: userId (Cognito Sub UUID) as HASH, id as RANGE."
+    }
+  ],
+  "s3_buckets": [],
+  "cognito": {
+    "enabled": true,
+    "user_pool_attributes": ["email", "name"],
+    "password_policy": {
+      "min_length": 8,
+      "require_symbols": true,
+      "require_numbers": true,
+      "require_uppercase": true,
+      "require_lowercase": true
+    },
+    "triggers": {
+      "post_confirmation": {
+        "enabled": false,
+        "purpose": "Registration only creates credentials in Users table, which is deleted. No business initialization needed."
+      }
+    }
+  },
+  "api_gateway": {
+    "type": "REST",
+    "cors": {
+      "allow_origins": ["*"],
+      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "allow_headers": ["Content-Type", "Authorization", "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"],
+      "max_age": 86400
+    },
+    "authorizer": "Cognito"
+  },
+  "table_initialization": [
+    {
+      "table": "TodoTable",
+      "source_file": "todo/scripts/init-db.js",
+      "strategy": "Custom Resource Lambda during CloudFormation deployment",
+      "notes": "Only create TodoTable, skip UserTable creation as it's handled by Cognito"
+    }
+  ],
+  "dropped_functions": [
+    {
+      "item": "POST /register",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito User Pool - Frontend calls AWS Amplify Auth.signUp()",
+      "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signUp({username, password, attributes: {email}})"
+    },
+    {
+      "item": "POST /login",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito User Pool - Frontend calls AWS Amplify Auth.signIn()",
+      "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signIn(username, password)"
+    },
+    {
+      "item": "authenticateToken middleware",
+      "type": "code",
+      "reason": "Replaced by API Gateway Cognito Authorizer - Token validation at gateway layer, not in Lambda code",
+      "frontend_integration": "N/A - API Gateway automatically validates Cognito JWT tokens"
+    },
+    {
+      "item": "verifyToken function",
+      "type": "code",
+      "reason": "Replaced by API Gateway Cognito Authorizer - Token validation at gateway layer, not in Lambda code",
+      "frontend_integration": "N/A - API Gateway automatically validates Cognito JWT tokens"
+    },
+    {
+      "item": "generateToken function",
+      "type": "code",
+      "reason": "Replaced by Cognito User Pool - Tokens generated by Cognito, not application code",
+      "frontend_integration": "N/A - Cognito generates JWT tokens after successful authentication"
+    },
+    {
+      "item": "init-db.js script",
+      "type": "script",
+      "reason": "Infrastructure script - Table creation handled by SAM template CloudFormation resources",
+      "frontend_integration": "N/A"
+    },
+    {
+      "item": "Users table (username, password_hash, created_at)",
+      "type": "table",
+      "reason": "User authentication moved to Cognito User Pool - Credentials table deleted; no business profile fields needed",
+      "frontend_integration": "N/A"
+    },
+    {
+      "item": "bcryptjs dependency",
+      "type": "dependency",
+      "reason": "Password hashing handled by Cognito User Pool, not application code",
+      "frontend_integration": "N/A"
+    },
+    {
+      "item": "jsonwebtoken dependency",
+      "type": "dependency",
+      "reason": "JWT handling moved to Cognito and API Gateway Authorizer",
+      "frontend_integration": "N/A"
+    }
+  ]
+}

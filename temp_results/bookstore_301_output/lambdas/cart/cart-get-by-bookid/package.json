@@ -1,0 +1,9 @@
+{
+  "name": "cart-get-by-bookid",
+  "version": "1.0.0",
+  "description": "Lambda function to get cart item by book ID",
+  "dependencies": {},
+  "engines": {
+    "node": "18.x"
+  }
+}

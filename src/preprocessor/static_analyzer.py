@@ -3,7 +3,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Set, Optional
+from typing import Any, Dict, List, Set
 
 import ast
 
@@ -14,8 +14,6 @@ DEFAULT_OUTPUT_PATH = ROOT_DIR / "storage" / "analysis_report.json"
 
 
 PY_ENTRY_METHOD_DECORATORS = {"get", "post", "put", "delete", "patch"}
-EXPRESS_HTTP_METHODS = {"get", "post", "put", "delete", "patch"}
-
 # 需要忽略的目录列表（用于项目结构可视化和代码分析）
 IGNORE_DIRS = {
     'venv',
@@ -77,19 +75,9 @@ def tag_file(source: str, file_path: str) -> List[str]:
     ]):
         tags.add("DynamoDB")
     
-    if "DynamoDB" not in tags:
-        if any(keyword in lower for keyword in [
-            "sqlite", "pymysql", "mysql", "postgresql", "postgres", "mongodb"
-        ]):
-            tags.add("Database")
-    
     # 认证相关
     if "jwt" in lower or "jsonwebtoken" in lower:
         tags.add("Auth")
-    
-    # Cognito 认证检测
-    # if "cognito" in lower or "cognitoidentityserviceprovider" in lower:
-        # tags.add("Cognito")
     
     # 文件上传检测
     file_upload_keywords = [
@@ -123,44 +111,6 @@ def tag_file(source: str, file_path: str) -> List[str]:
     
     if any(keyword in lower for keyword in file_upload_keywords):
         tags.add("FileUpload")
-    
-    # WebSocket 实时通信检测
-    websocket_keywords = [
-        "websocket", "ws://", "wss://", "socket.io", "socketio",
-        "new websocket", "ws.on(", "wss.on(", "io.on(", 
-        "websockets", "fastapi.websocket", "@app.websocket"
-    ]
-    
-    if any(keyword in lower for keyword in websocket_keywords):
-        tags.add("WebSocket")
-    
-    # 后台任务/异步处理检测
-    async_task_keywords = [
-        # Python patterns
-        "celery", "@celery.task", "@task", "apply_async", "delay(",
-        "rq", "redis-queue", "dramatiq", "huey",
-        
-        # Node.js patterns
-        "bull", "kue", "agenda", "bee-queue",
-        "queue.add(", "job.queue", "background job",
-        
-        # Generic patterns
-        "task queue", "job queue", "async task", "background task",
-        "worker", "job_queue", "task_queue"
-    ]
-    
-    if any(keyword in lower for keyword in async_task_keywords):
-        tags.add("AsyncTask")
-    
-    # 定时任务检测
-    cron_keywords = [
-        "cron", "schedule", "apscheduler", "node-cron", "node-schedule",
-        "setinterval", "crontab", "cronjob", "scheduled task",
-        "@scheduled", "schedule.every"
-    ]
-    
-    if any(keyword in lower for keyword in cron_keywords):
-        tags.add("ScheduledTask")
     
     return sorted(tags)
 
@@ -378,8 +328,6 @@ def analyze_js_like_file(root: Path, file_path: Path, app_name: str = None) -> D
         file_path: 文件完整路径
         app_name: 应用名（用于在符号表中保留命名空间前缀）
     """
-    import re
-
     rel_path = str(file_path.relative_to(root).as_posix())
     
     # 如果提供了app_name，为路径添加前缀以确保全局唯一性

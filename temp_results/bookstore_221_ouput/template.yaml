@@ -1,0 +1,556 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Bookstore Serverless Application Infrastructure
+
+Globals:
+  Function:
+    Runtime: nodejs18.x
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        LOG_LEVEL: INFO
+    Tracing: Active
+  Api:
+    Cors:
+      AllowOrigin: "'*'"
+      AllowHeaders: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      MaxAge: "'86400'"
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment
+  RedisEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable Redis for bestsellers caching
+  ElasticsearchEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable Elasticsearch for search functionality
+  NeptuneEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable Neptune for recommendations
+
+Resources:
+  # Lambda Layer
+  BaseNodeUtilsLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub ${Environment}-base-node-utils
+      Description: Common AWS SDK and utilities used by most Lambdas
+      ContentUri: layers/base-node-utils/
+      CompatibleRuntimes:
+        - nodejs18.x
+      RetentionPolicy: Retain
+      Metadata:
+        BuildMethod: nodejs18.x
+
+  # API Gateway
+  BookstoreApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub ${Environment}-bookstore-api
+      StageName: !Ref Environment
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn
+
+  # Cognito User Pool
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${Environment}-bookstore-users
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+        - Name: name
+          AttributeDataType: String
+          Required: false
+          Mutable: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub ${Environment}-bookstore-web-client
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs:
+        - http://localhost:3000
+        - https://example.com
+      LogoutURLs:
+        - http://localhost:3000
+        - https://example.com
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+
+  # DynamoDB Tables
+  BooksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-books
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: category
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: category-index
+          KeySchema:
+            - AttributeName: category
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  CartTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-cart
+      AttributeDefinitions:
+        - AttributeName: customerId
+          AttributeType: S
+        - AttributeName: bookId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customerId
+          KeyType: HASH
+        - AttributeName: bookId
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-orders
+      AttributeDefinitions:
+        - AttributeName: customerId
+          AttributeType: S
+        - AttributeName: orderId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customerId
+          KeyType: HASH
+        - AttributeName: orderId
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
+  # Lambda Functions - API Endpoints
+  BestsellersGetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/bestsellers/bestsellers-get/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          REDIS_ENABLED: !Ref RedisEnabled
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BooksTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /bestsellers
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  BooksGetAllFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/books/books-get-all/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          BOOKS_TABLE: !Ref BooksTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BooksTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /books
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  BooksGetByIdFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/books/books-get-by-id/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          BOOKS_TABLE: !Ref BooksTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BooksTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /books/{id}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  CartGetAllFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/cart/cart-get-all/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          CART_TABLE: !Ref CartTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CartTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /cart
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  CartGetByBookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/cart/cart-get-by-book/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          CART_TABLE: !Ref CartTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CartTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /cart/{bookId}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  CartCreateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/cart/cart-create/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          CART_TABLE: !Ref CartTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CartTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /cart
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  CartUpdateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/cart/cart-update/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          CART_TABLE: !Ref CartTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CartTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /cart
+            Method: PUT
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  CartDeleteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/cart/cart-delete/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          CART_TABLE: !Ref CartTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CartTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /cart
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  OrdersGetAllFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/orders/orders-get-all/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          ORDERS_TABLE: !Ref OrdersTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref OrdersTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /orders
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  OrdersCreateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/orders/orders-create/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          ORDERS_TABLE: !Ref OrdersTable
+          CART_TABLE: !Ref CartTable
+          REDIS_ENABLED: !Ref RedisEnabled
+          INTERNAL_API_BASE_URL: !Sub https://${BookstoreApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CartTable
+        - LambdaInvokePolicy:
+            FunctionName: !Ref BestsellersUpdateFunction
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /orders
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  RecommendationsGetAllFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/recommendations/recommendations-get-all/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          NEPTUNE_ENABLED: !Ref NeptuneEnabled
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BooksTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /recommendations
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  RecommendationsGetByBookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/recommendations/recommendations-get-by-book/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          NEPTUNE_ENABLED: !Ref NeptuneEnabled
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BooksTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /recommendations/{bookId}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  SearchGetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/search/search-get/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          ES_ENABLED: !Ref ElasticsearchEnabled
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BooksTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /search
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  # Internal Functions
+  BestsellersUpdateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/internal/bestsellers-update/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          REDIS_ENABLED: !Ref RedisEnabled
+          INTERNAL_API_BASE_URL: !Sub https://${BookstoreApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BooksTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /internal/bestsellers/update
+            Method: POST
+            Auth:
+              Authorizer: NONE
+
+  SearchSyncIndexFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/internal/search-sync-index/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          ES_ENABLED: !Ref ElasticsearchEnabled
+          INTERNAL_API_BASE_URL: !Sub https://${BookstoreApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BooksTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /internal/search-sync/index
+            Method: POST
+            Auth:
+              Authorizer: NONE
+
+  SearchSyncDeleteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/internal/search-sync-delete/
+      Handler: handler.lambdaHandler
+      Layers:
+        - !Ref BaseNodeUtilsLayer
+      Environment:
+        Variables:
+          ES_ENABLED: !Ref ElasticsearchEnabled
+          INTERNAL_API_BASE_URL: !Sub https://${BookstoreApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BooksTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookstoreApi
+            Path: /internal/search-sync/delete
+            Method: POST

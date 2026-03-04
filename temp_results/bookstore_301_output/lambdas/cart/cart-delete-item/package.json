@@ -1,0 +1,9 @@
+{
+  "name": "cart-delete-item",
+  "version": "1.0.0",
+  "description": "Lambda function to delete cart item",
+  "dependencies": {},
+  "engines": {
+    "node": "18.x"
+  }
+}

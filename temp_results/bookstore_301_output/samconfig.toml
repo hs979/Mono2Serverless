@@ -1,0 +1,11 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "bookstore-301"
+resolve_s3 = true
+s3_prefix = "bookstore-301"
+region = "us-east-2"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "Environment=\"dev\" RedisHostParam=\"localhost\" RedisPortParam=\"6379\" RedisEnabledParam=\"false\" NeptuneEndpointParam=\"\" ElasticsearchEndpointParam=\"\""
+image_repositories = []

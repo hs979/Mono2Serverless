@@ -21,29 +21,34 @@ Client → API Gateway (REST API) → Lambda Functions → DynamoDB / S3
 ### 1. API Gateway (REST API)
 - **Purpose**: HTTP entry point replacing monolith's web server
 - **Configuration**:
-  - One API Gateway route per monolith endpoint
+  - One API Gateway route per **api** BCU only; internal BCUs are standalone Lambdas with NO API Gateway route
   - Keep the same HTTP paths and methods
   - CORS enabled for external clients
   - Cognito Authorizer (if auth exists in monolith)
 
 ### 2. Lambda Functions
 - **Purpose**: Execute business logic in a serverless environment
-- **Design (STRICT)**: **ONE monolith API endpoint = ONE Lambda function**
-  - Treat an "endpoint" as **(HTTP method + path)**, e.g. `GET /items/{id}`.
-  - Even if endpoints share the same domain (e.g. many `/orders/*` routes), they are still **separate Lambda functions**.
-  - This enforces **responsibility separation**, simpler IAM scoping, simpler deployments, and clearer ownership per capability.
+- **Design**: **ONE Business Capability Unit (BCU) = ONE Lambda function**
+  - **API BCU**: each (HTTP method + path) → one Lambda; `trigger_type: "api"`; field `entry_points`
+  - **Internal BCU**: a non-endpoint function that is called by 2+ Lambdas and has multi-step non-trivial logic →
+    `trigger_type: "internal"`; field `internal_path`, `called_by` (MUST be non-empty)
+     Do NOT use if the entire operation is a single AWS SDK call — inline it in the caller instead
+  - **Scheduled BCU**: a periodic maintenance function with meaningful logic not covered by native AWS features →
+    `trigger_type: "scheduled"`; field `schedule_expression`; check DynamoDB TTL before creating expiry-cleanup Lambdas
+  - **Cognito BCU**: triggered by Cognito Post-Confirmation (only if registration has business side-effects) →
+    `trigger_type: "cognito"`
+  -  When in doubt, keep logic inside the calling Lambda — avoid over-splitting
 - **Principle**: Single-responsibility (one handler does one thing)
-- **Folder Organization (recommended)**:
-  - You MAY group by **domain** at the folder level (recommended), but keep handlers split.
-  - **Domain is not a rigid naming rule**: infer it from the monolith’s modules/routes/controllers (keep its structure when it makes sense).
-  - Example (domainful):
-    - `lambdas/orders/get_order/handler.py`
-    - `lambdas/orders/create_order/handler.py`
-    - `lambdas/products/list_products/handler.py`
-  - Example (flat monolith / ambiguous domain): keep a simple layout, but still split handlers:
-    - `lambdas/get_item/handler.py`
-    - `lambdas/create_item/handler.py`
-  - Shared code goes to a **Lambda Layer** (or shared package), not a "mega handler".
+- **Folder Organization**: group by domain at folder level, keep handlers split
+  - `lambdas/orders/get-order/handler.py` (api BCU)
+  - `lambdas/cart/delete-items/handler.py` (internal BCU)
+  - Shared code → Lambda Layer, not a "mega handler"
+- **Inter-Lambda Communication**: ALL Lambda-to-Lambda calls use **AWS SDK Direct Invocation** via `invoke_lambda` from the shared layer
+  - Do NOT use HTTP fetch / `requests.post` / `axios.post` to call another Lambda via API Gateway URL
+  - Do NOT use Function URL (`https://*.lambda-url.*.on.aws`) for internal calls
+  - Import `internal_client.invoke_lambda(function_name, payload, invocation_type)` (provided by base layer)
+  - `function_name` is read from an env var (e.g., `os.environ['TARGET_FUNCTION_NAME']`), set in SAM template via `!Ref`
+  - Invoker Lambda MUST have `LambdaInvokePolicy` in SAM template pointing to the target function
 - **Handler Pattern**:
 ```python
 def lambda_handler(event, context):
@@ -159,16 +164,26 @@ Below are two typical patterns to avoid treating `UserProfiles` and `post_confir
     "has_database": true,
     "has_file_storage": false
   },
+  "communication_strategy": "sdk_direct_invocation",
   "lambda_functions": [
     {
       "name": "items-get-item",
+      "trigger_type": "api",
       "runtime": "python3.11",
       "handler": "handler.lambda_handler",
       "source_files": ["app/routes/items.py", "app/services/item_service.py"],
-      "entry_points": ["/items/{id}"],
-      "environment_variables": {
-        "ITEMS_TABLE": "${ItemsTable}"
-      }
+      "entry_points": ["GET /items/{id}"],
+      "environment_variables": {"ITEMS_TABLE": "${ItemsTable}"}
+    },
+    {
+      "name": "cart-delete-items",
+      "trigger_type": "internal",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["app/models/cart.py"],
+      "internal_path": "/internal/cart/delete-items",
+      "called_by": ["cart-checkout"],
+      "environment_variables": {"CART_TABLE": "${CartTable}"}
     }
   ],
   "dynamodb_tables": [
@@ -224,7 +239,7 @@ Below are two typical patterns to avoid treating `UserProfiles` and `post_confir
 
 ## Common Mistakes to Avoid
 
-### ❌ Mistake 1: Keeping User Credentials Table
+### Mistake 1: Keeping User Credentials Table
 **Wrong**:
 ```yaml
 UsersTable:  # Contains email, password_hash, salt
@@ -239,7 +254,7 @@ UserProfilesTable:  # Contains bio, preferences, avatar_url
   # ...
 ```
 
-### ❌ Mistake 2: Creating Auth Lambda Functions
+### Mistake 2: Creating Auth Lambda Functions
 **Wrong**:
 ```yaml
 LoginFunction:
@@ -254,7 +269,7 @@ LoginFunction:
 # - cognito-idp.InitiateAuth()
 ```
 
-### ❌ Mistake 3: Creating Infrastructure Lambda
+### Mistake 3: Creating Infrastructure Lambda
 **Wrong**:
 ```yaml
 InitDynamoDBFunction:
@@ -271,7 +286,7 @@ InitDynamoDBFunction:
 # Or use DynamoDB table initialization in SAM template
 ```
 
-### ❌ Mistake 4: Adding Features Not in Monolith
+### Mistake 4: Adding Features Not in Monolith
 **Wrong**: Monolith has no auth → Added Cognito anyway
 **Correct**: Monolith has no auth → No Cognito in serverless version
 
@@ -283,7 +298,7 @@ InitDynamoDBFunction:
 3. Delete auth endpoints (handled by Cognito)
 4. Preserve all business logic exactly
 5. Do not add features that don't exist in monolith
-6. **One API endpoint (method+path) → one Lambda (one handler file); group by domain only at folder level**
+6. **One BCU → one Lambda**: API BCUs = one (method+path); internal BCUs = non-trivial multi-step logic called by 2+ Lambdas; scheduled BCUs = periodic jobs not handled by native AWS; group by domain at folder level only
 
 **Success Criteria**:
 - All monolith API endpoints work in serverless

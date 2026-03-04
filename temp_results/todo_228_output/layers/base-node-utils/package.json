@@ -1,0 +1,12 @@
+{
+  "name": "base-node-utils",
+  "version": "1.0.0",
+  "description": "Shared utilities and dependencies for Node.js Lambda functions",
+  "dependencies": {
+    "aws-sdk": "^2.823.0",
+    "uuid": "^8.3.2"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

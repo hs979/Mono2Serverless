@@ -1,0 +1,9 @@
+{
+  "name": "cart-update-item",
+  "version": "1.0.0",
+  "description": "Lambda function to update cart item",
+  "dependencies": {},
+  "engines": {
+    "node": "18.x"
+  }
+}

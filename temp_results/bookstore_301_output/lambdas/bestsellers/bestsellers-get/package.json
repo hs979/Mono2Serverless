@@ -1,0 +1,11 @@
+{
+  "name": "bestsellers-get",
+  "version": "1.0.0",
+  "description": "Lambda function to get bestsellers list",
+  "dependencies": {
+    "redis": "^3.1.2"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

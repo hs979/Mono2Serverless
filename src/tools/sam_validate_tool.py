@@ -1,7 +1,7 @@
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Tuple, Type
+from typing import Type
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
 

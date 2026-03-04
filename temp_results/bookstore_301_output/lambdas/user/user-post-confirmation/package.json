@@ -1,0 +1,9 @@
+{
+  "name": "user-post-confirmation",
+  "version": "1.0.0",
+  "description": "Cognito Post-Confirmation Lambda to create user profile",
+  "dependencies": {},
+  "engines": {
+    "node": "18.x"
+  }
+}

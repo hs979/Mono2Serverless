@@ -1,0 +1,460 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless application (auto-generated) - Bookstore
+
+Globals:
+  Function:
+    Runtime: nodejs18.x
+    Timeout: 30
+    MemorySize: 256
+    Tracing: Active
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+
+Resources:
+
+  # ============================================================
+  # API Gateway
+  # ============================================================
+  MyApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+        MaxAge: "'86400'"
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn
+
+  # ============================================================
+  # Cognito
+  # ============================================================
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub '${Environment}-bookstore-user-pool'
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: name
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub '${Environment}-bookstore-client'
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+
+  # ============================================================
+  # DynamoDB Tables
+  # ============================================================
+  BooksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${Environment}-books'
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: category
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      GlobalSecondaryIndexes:
+        - IndexName: category-index
+          KeySchema:
+            - AttributeName: category
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  CartTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${Environment}-cart'
+      AttributeDefinitions:
+        - AttributeName: customerId
+          AttributeType: S
+        - AttributeName: bookId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customerId
+          KeyType: HASH
+        - AttributeName: bookId
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${Environment}-orders'
+      AttributeDefinitions:
+        - AttributeName: customerId
+          AttributeType: S
+        - AttributeName: orderId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customerId
+          KeyType: HASH
+        - AttributeName: orderId
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
+  # ============================================================
+  # Lambda Functions — Domain: bestsellers
+  # ============================================================
+  BestsellersGetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-bestsellers-get'
+      CodeUri: lambdas/bestsellers/bestsellers-get/
+      Handler: handler.getBestsellers
+      Environment:
+        Variables:
+          REDIS_ENDPOINT: ''
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /bestsellers
+            Method: GET
+            RestApiId: !Ref MyApi
+            Auth:
+              Authorizer: NONE
+
+  # ============================================================
+  # Lambda Functions — Domain: books
+  # ============================================================
+  BooksGetAllFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-books-get-all'
+      CodeUri: lambdas/books/books-get-all/
+      Handler: handler.getAllBooks
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BooksTable
+      Environment:
+        Variables:
+          BOOKS_TABLE: !Ref BooksTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /books
+            Method: GET
+            RestApiId: !Ref MyApi
+            Auth:
+              Authorizer: NONE
+
+  BooksGetByIdFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-books-get-by-id'
+      CodeUri: lambdas/books/books-get-by-id/
+      Handler: handler.getBookById
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BooksTable
+      Environment:
+        Variables:
+          BOOKS_TABLE: !Ref BooksTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /books/{id}
+            Method: GET
+            RestApiId: !Ref MyApi
+            Auth:
+              Authorizer: NONE
+
+  # ============================================================
+  # Lambda Functions — Domain: cart
+  # ============================================================
+  CartAddItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-cart-add-item'
+      CodeUri: lambdas/cart/cart-add-item/
+      Handler: handler.addToCart
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CartTable
+      Environment:
+        Variables:
+          CART_TABLE: !Ref CartTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /cart
+            Method: POST
+            RestApiId: !Ref MyApi
+
+  CartDeleteItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-cart-delete-item'
+      CodeUri: lambdas/cart/cart-delete-item/
+      Handler: handler.deleteFromCart
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CartTable
+      Environment:
+        Variables:
+          CART_TABLE: !Ref CartTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /cart
+            Method: DELETE
+            RestApiId: !Ref MyApi
+
+  CartGetAllFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-cart-get-all'
+      CodeUri: lambdas/cart/cart-get-all/
+      Handler: handler.getCart
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CartTable
+      Environment:
+        Variables:
+          CART_TABLE: !Ref CartTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /cart
+            Method: GET
+            RestApiId: !Ref MyApi
+
+  CartGetItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-cart-get-item'
+      CodeUri: lambdas/cart/cart-get-item/
+      Handler: handler.getCartItem
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CartTable
+      Environment:
+        Variables:
+          CART_TABLE: !Ref CartTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /cart/{bookId}
+            Method: GET
+            RestApiId: !Ref MyApi
+
+  CartUpdateItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-cart-update-item'
+      CodeUri: lambdas/cart/cart-update-item/
+      Handler: handler.updateCart
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CartTable
+      Environment:
+        Variables:
+          CART_TABLE: !Ref CartTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /cart
+            Method: PUT
+            RestApiId: !Ref MyApi
+
+  # ============================================================
+  # Lambda Functions — Domain: orders
+  # ============================================================
+  OrdersCreateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-orders-create'
+      CodeUri: lambdas/orders/orders-create/
+      Handler: handler.createOrder
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CartTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref BooksTable
+      Environment:
+        Variables:
+          ORDERS_TABLE: !Ref OrdersTable
+          CART_TABLE: !Ref CartTable
+          BOOKS_TABLE: !Ref BooksTable
+          REDIS_ENDPOINT: ''
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /orders
+            Method: POST
+            RestApiId: !Ref MyApi
+
+  OrdersGetAllFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-orders-get-all'
+      CodeUri: lambdas/orders/orders-get-all/
+      Handler: handler.getOrders
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref OrdersTable
+      Environment:
+        Variables:
+          ORDERS_TABLE: !Ref OrdersTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /orders
+            Method: GET
+            RestApiId: !Ref MyApi
+
+  # ============================================================
+  # Lambda Functions — Domain: recommendations
+  # ============================================================
+  RecommendationsGetAllFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-recommendations-get-all'
+      CodeUri: lambdas/recommendations/recommendations-get-all/
+      Handler: handler.getRecommendations
+      Environment:
+        Variables:
+          NEPTUNE_ENDPOINT: ''
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /recommendations
+            Method: GET
+            RestApiId: !Ref MyApi
+            Auth:
+              Authorizer: NONE
+
+  RecommendationsGetByBookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-recommendations-get-by-book'
+      CodeUri: lambdas/recommendations/recommendations-get-by-book/
+      Handler: handler.getBookRecommendations
+      Environment:
+        Variables:
+          NEPTUNE_ENDPOINT: ''
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /recommendations/{bookId}
+            Method: GET
+            RestApiId: !Ref MyApi
+            Auth:
+              Authorizer: NONE
+
+  # ============================================================
+  # Lambda Functions — Domain: search
+  # ============================================================
+  SearchBooksFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-search-books'
+      CodeUri: lambdas/search/search-books/
+      Handler: handler.searchBooks
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BooksTable
+      Environment:
+        Variables:
+          BOOKS_TABLE: !Ref BooksTable
+          ELASTICSEARCH_ENDPOINT: ''
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /search
+            Method: GET
+            RestApiId: !Ref MyApi
+            Auth:
+              Authorizer: NONE
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${MyApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEndpoint'
+
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolId'
+
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref UserPoolClient
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolClientId'
+
+  BooksTableName:
+    Description: DynamoDB Books table name
+    Value: !Ref BooksTable
+    Export:
+      Name: !Sub '${AWS::StackName}-BooksTable'
+
+  CartTableName:
+    Description: DynamoDB Cart table name
+    Value: !Ref CartTable
+    Export:
+      Name: !Sub '${AWS::StackName}-CartTable'
+
+  OrdersTableName:
+    Description: DynamoDB Orders table name
+    Value: !Ref OrdersTable
+    Export:
+      Name: !Sub '${AWS::StackName}-OrdersTable'

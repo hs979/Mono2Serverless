@@ -16,13 +16,12 @@ from typing import Optional
 from crewai_tools import LlamaIndexTool
 from llama_index.core import StorageContext, load_index_from_storage, Settings
 from llama_index.core.query_engine import RetrieverQueryEngine
-from llama_index.core.response_synthesizers import get_response_synthesizer, ResponseMode
+from llama_index.core.response_synthesizers import BaseSynthesizer
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.core.llms.mock import MockLLM
 
 
 from llama_index.core.base.response.schema import Response
-from llama_index.core.response_synthesizers import BaseSynthesizer
 
 class SimpleCodeFormatter(BaseSynthesizer):
     """

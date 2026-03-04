@@ -1,0 +1,4 @@
+
+# Dependencies for flights-get Lambda
+# boto3 is already available in AWS Lambda Python runtime
+# shared_utils is provided via layer

@@ -1,0 +1,722 @@
+{
+  "project_structure": "bookstore/\n├── config.js\n├── env.example\n├── middleware\n│   └── auth.js\n├── package-lock.json\n├── package.json\n├── routes\n│   ├── auth.js\n│   ├── bestsellers.js\n│   ├── books.js\n│   ├── cart.js\n│   ├── orders.js\n│   ├── recommendations.js\n│   └── search.js\n├── scripts\n│   ├── init-db.js\n│   └── test-api.sh\n├── server.js\n└── utils\n    ├── bestsellers.js\n    ├── dynamodb.js\n    ├── jwt.js\n    ├── password.js\n    └── search-sync.js",
+  "entry_points": [
+    {
+      "file": "bookstore/routes/auth.js",
+      "method": "POST",
+      "path": "/register"
+    },
+    {
+      "file": "bookstore/routes/auth.js",
+      "method": "POST",
+      "path": "/login"
+    },
+    {
+      "file": "bookstore/routes/auth.js",
+      "method": "POST",
+      "path": "/refresh"
+    },
+    {
+      "file": "bookstore/routes/auth.js",
+      "method": "GET",
+      "path": "/me"
+    },
+    {
+      "file": "bookstore/routes/bestsellers.js",
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "file": "bookstore/routes/books.js",
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "file": "bookstore/routes/books.js",
+      "method": "GET",
+      "path": "/:id"
+    },
+    {
+      "file": "bookstore/routes/cart.js",
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "file": "bookstore/routes/cart.js",
+      "method": "GET",
+      "path": "/:bookId"
+    },
+    {
+      "file": "bookstore/routes/cart.js",
+      "method": "POST",
+      "path": "/"
+    },
+    {
+      "file": "bookstore/routes/cart.js",
+      "method": "PUT",
+      "path": "/"
+    },
+    {
+      "file": "bookstore/routes/cart.js",
+      "method": "DELETE",
+      "path": "/"
+    },
+    {
+      "file": "bookstore/routes/orders.js",
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "file": "bookstore/routes/orders.js",
+      "method": "POST",
+      "path": "/"
+    },
+    {
+      "file": "bookstore/routes/recommendations.js",
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "file": "bookstore/routes/recommendations.js",
+      "method": "GET",
+      "path": "/:bookId"
+    },
+    {
+      "file": "bookstore/routes/search.js",
+      "method": "GET",
+      "path": "/"
+    }
+  ],
+  "dependency_graph": {
+    "bookstore/config.js": [
+      "dotenv"
+    ],
+    "bookstore/server.js": [
+      "./config",
+      "./middleware/auth",
+      "./routes/auth",
+      "./routes/bestsellers",
+      "./routes/books",
+      "./routes/cart",
+      "./routes/orders",
+      "./routes/recommendations",
+      "./routes/search",
+      "body-parser",
+      "cors",
+      "dotenv",
+      "express",
+      "path"
+    ],
+    "bookstore/middleware/auth.js": [
+      "../config",
+      "../utils/jwt"
+    ],
+    "bookstore/routes/auth.js": [
+      "../config",
+      "../middleware/auth",
+      "../utils/dynamodb",
+      "../utils/jwt",
+      "../utils/password",
+      "express",
+      "uuid"
+    ],
+    "bookstore/routes/bestsellers.js": [
+      "../config",
+      "express",
+      "redis",
+      "util"
+    ],
+    "bookstore/routes/books.js": [
+      "../config",
+      "../middleware/auth",
+      "../utils/dynamodb",
+      "express"
+    ],
+    "bookstore/routes/cart.js": [
+      "../config",
+      "../middleware/auth",
+      "../utils/dynamodb",
+      "express",
+      "uuid"
+    ],
+    "bookstore/routes/orders.js": [
+      "../config",
+      "../middleware/auth",
+      "../utils/bestsellers",
+      "../utils/dynamodb",
+      "express",
+      "uuid"
+    ],
+    "bookstore/routes/recommendations.js": [
+      "../config",
+      "express",
+      "gremlin"
+    ],
+    "bookstore/routes/search.js": [
+      "../config",
+      "@acuris/aws-es-connection",
+      "@elastic/elasticsearch",
+      "aws-sdk",
+      "express"
+    ],
+    "bookstore/scripts/init-db.js": [
+      "../config",
+      "../utils/dynamodb",
+      "../utils/search-sync",
+      "aws-sdk",
+      "dotenv",
+      "fs",
+      "path"
+    ],
+    "bookstore/utils/bestsellers.js": [
+      "../config",
+      "redis",
+      "util"
+    ],
+    "bookstore/utils/dynamodb.js": [
+      "../config",
+      "aws-sdk"
+    ],
+    "bookstore/utils/jwt.js": [
+      "../config",
+      "jsonwebtoken"
+    ],
+    "bookstore/utils/password.js": [
+      "bcryptjs"
+    ],
+    "bookstore/utils/search-sync.js": [
+      "../config",
+      "@acuris/aws-es-connection",
+      "@elastic/elasticsearch",
+      "aws-sdk"
+    ]
+  },
+  "file_tags": {
+    "bookstore/config.js": [
+      "Auth",
+      "DynamoDB"
+    ],
+    "bookstore/server.js": [
+      "Auth"
+    ],
+    "bookstore/middleware/auth.js": [
+      "Auth"
+    ],
+    "bookstore/routes/auth.js": [
+      "Auth",
+      "DynamoDB"
+    ],
+    "bookstore/routes/books.js": [
+      "DynamoDB"
+    ],
+    "bookstore/routes/cart.js": [
+      "DynamoDB"
+    ],
+    "bookstore/routes/orders.js": [
+      "DynamoDB"
+    ],
+    "bookstore/routes/recommendations.js": [
+      "WebSocket"
+    ],
+    "bookstore/routes/search.js": [
+      "AsyncTask",
+      "DynamoDB"
+    ],
+    "bookstore/scripts/init-db.js": [
+      "DynamoDB"
+    ],
+    "bookstore/utils/dynamodb.js": [
+      "DynamoDB"
+    ],
+    "bookstore/utils/jwt.js": [
+      "Auth"
+    ],
+    "bookstore/utils/search-sync.js": [
+      "DynamoDB"
+    ]
+  },
+  "symbol_table": [
+    {
+      "id": "bookstore.server.USE__api_auth",
+      "file_path": "bookstore/server.js",
+      "start_line": 39,
+      "end_line": 58,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.server.USE__api_books",
+      "file_path": "bookstore/server.js",
+      "start_line": 42,
+      "end_line": 58,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.server.USE__api_cart",
+      "file_path": "bookstore/server.js",
+      "start_line": 43,
+      "end_line": 58,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.server.USE__api_orders",
+      "file_path": "bookstore/server.js",
+      "start_line": 44,
+      "end_line": 58,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.server.USE__api_bestsellers",
+      "file_path": "bookstore/server.js",
+      "start_line": 45,
+      "end_line": 58,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.server.USE__api_recommendations",
+      "file_path": "bookstore/server.js",
+      "start_line": 46,
+      "end_line": 58,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.server.USE__api_search",
+      "file_path": "bookstore/server.js",
+      "start_line": 47,
+      "end_line": 58,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.middleware.auth.authMiddleware",
+      "file_path": "bookstore/middleware/auth.js",
+      "start_line": 17,
+      "end_line": 63,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.middleware.auth.optionalAuthMiddleware",
+      "file_path": "bookstore/middleware/auth.js",
+      "start_line": 69,
+      "end_line": 96,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.routes.auth.POST__register",
+      "file_path": "bookstore/routes/auth.js",
+      "start_line": 20,
+      "end_line": 101,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.auth.POST__login",
+      "file_path": "bookstore/routes/auth.js",
+      "start_line": 108,
+      "end_line": 171,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.auth.POST__refresh",
+      "file_path": "bookstore/routes/auth.js",
+      "start_line": 178,
+      "end_line": 228,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.auth.GET__me",
+      "file_path": "bookstore/routes/auth.js",
+      "start_line": 235,
+      "end_line": 273,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.bestsellers.initRedis",
+      "file_path": "bookstore/routes/bestsellers.js",
+      "start_line": 17,
+      "end_line": 54,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.routes.bestsellers.redisClient_on_error",
+      "file_path": "bookstore/routes/bestsellers.js",
+      "start_line": 39,
+      "end_line": 41,
+      "kind": "event_handler"
+    },
+    {
+      "id": "bookstore.routes.bestsellers.redisClient_on_connect",
+      "file_path": "bookstore/routes/bestsellers.js",
+      "start_line": 43,
+      "end_line": 45,
+      "kind": "event_handler"
+    },
+    {
+      "id": "bookstore.routes.bestsellers.GET__",
+      "file_path": "bookstore/routes/bestsellers.js",
+      "start_line": 63,
+      "end_line": 92,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.books.GET__",
+      "file_path": "bookstore/routes/books.js",
+      "start_line": 19,
+      "end_line": 49,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.books.GET___id",
+      "file_path": "bookstore/routes/books.js",
+      "start_line": 56,
+      "end_line": 76,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.cart.GET__",
+      "file_path": "bookstore/routes/cart.js",
+      "start_line": 17,
+      "end_line": 33,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.cart.GET___bookId",
+      "file_path": "bookstore/routes/cart.js",
+      "start_line": 40,
+      "end_line": 61,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.cart.POST__",
+      "file_path": "bookstore/routes/cart.js",
+      "start_line": 68,
+      "end_line": 94,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.cart.PUT__",
+      "file_path": "bookstore/routes/cart.js",
+      "start_line": 101,
+      "end_line": 130,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.cart.DELETE__",
+      "file_path": "bookstore/routes/cart.js",
+      "start_line": 137,
+      "end_line": 161,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.orders.GET__",
+      "file_path": "bookstore/routes/orders.js",
+      "start_line": 18,
+      "end_line": 34,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.orders.POST__",
+      "file_path": "bookstore/routes/orders.js",
+      "start_line": 45,
+      "end_line": 107,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.recommendations.initNeptune",
+      "file_path": "bookstore/routes/recommendations.js",
+      "start_line": 16,
+      "end_line": 36,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.routes.recommendations.GET__",
+      "file_path": "bookstore/routes/recommendations.js",
+      "start_line": 44,
+      "end_line": 78,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.recommendations.GET___bookId",
+      "file_path": "bookstore/routes/recommendations.js",
+      "start_line": 85,
+      "end_line": 125,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.search.initElasticsearch",
+      "file_path": "bookstore/routes/search.js",
+      "start_line": 15,
+      "end_line": 37,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.routes.search.GET__",
+      "file_path": "bookstore/routes/search.js",
+      "start_line": 47,
+      "end_line": 93,
+      "kind": "route_handler"
+    },
+    {
+      "id": "bookstore.routes.search.searchWithDynamoDB",
+      "file_path": "bookstore/routes/search.js",
+      "start_line": 99,
+      "end_line": 126,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.scripts.init-db.createBooksTable",
+      "file_path": "bookstore/scripts/init-db.js",
+      "start_line": 71,
+      "end_line": 112,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.scripts.init-db.createCartTable",
+      "file_path": "bookstore/scripts/init-db.js",
+      "start_line": 117,
+      "end_line": 144,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.scripts.init-db.createOrdersTable",
+      "file_path": "bookstore/scripts/init-db.js",
+      "start_line": 149,
+      "end_line": 176,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.scripts.init-db.createUsersTable",
+      "file_path": "bookstore/scripts/init-db.js",
+      "start_line": 181,
+      "end_line": 222,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.scripts.init-db.waitForTable",
+      "file_path": "bookstore/scripts/init-db.js",
+      "start_line": 227,
+      "end_line": 244,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.scripts.init-db.initializeSampleBooks",
+      "file_path": "bookstore/scripts/init-db.js",
+      "start_line": 249,
+      "end_line": 267,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.scripts.init-db.syncBooksToElasticsearch",
+      "file_path": "bookstore/scripts/init-db.js",
+      "start_line": 272,
+      "end_line": 298,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.scripts.init-db.main",
+      "file_path": "bookstore/scripts/init-db.js",
+      "start_line": 303,
+      "end_line": 337,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.bestsellers.initRedisClient",
+      "file_path": "bookstore/utils/bestsellers.js",
+      "start_line": 16,
+      "end_line": 53,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.bestsellers.redisClient_on_error",
+      "file_path": "bookstore/utils/bestsellers.js",
+      "start_line": 38,
+      "end_line": 40,
+      "kind": "event_handler"
+    },
+    {
+      "id": "bookstore.utils.bestsellers.redisClient_on_connect",
+      "file_path": "bookstore/utils/bestsellers.js",
+      "start_line": 42,
+      "end_line": 44,
+      "kind": "event_handler"
+    },
+    {
+      "id": "bookstore.utils.bestsellers.updateBestSeller",
+      "file_path": "bookstore/utils/bestsellers.js",
+      "start_line": 61,
+      "end_line": 94,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.bestsellers.updateBestSellers",
+      "file_path": "bookstore/utils/bestsellers.js",
+      "start_line": 101,
+      "end_line": 119,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.bestsellers.closeRedisClient",
+      "file_path": "bookstore/utils/bestsellers.js",
+      "start_line": 124,
+      "end_line": 130,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.jwt.generateAccessToken",
+      "file_path": "bookstore/utils/jwt.js",
+      "start_line": 16,
+      "end_line": 25,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.jwt.generateRefreshToken",
+      "file_path": "bookstore/utils/jwt.js",
+      "start_line": 33,
+      "end_line": 42,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.jwt.verifyAccessToken",
+      "file_path": "bookstore/utils/jwt.js",
+      "start_line": 49,
+      "end_line": 58,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.jwt.verifyRefreshToken",
+      "file_path": "bookstore/utils/jwt.js",
+      "start_line": 65,
+      "end_line": 74,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.jwt.extractTokenFromHeader",
+      "file_path": "bookstore/utils/jwt.js",
+      "start_line": 81,
+      "end_line": 92,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.password.hashPassword",
+      "file_path": "bookstore/utils/password.js",
+      "start_line": 13,
+      "end_line": 16,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.password.verifyPassword",
+      "file_path": "bookstore/utils/password.js",
+      "start_line": 24,
+      "end_line": 26,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.search-sync.initElasticsearchClient",
+      "file_path": "bookstore/utils/search-sync.js",
+      "start_line": 14,
+      "end_line": 35,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.search-sync.indexBook",
+      "file_path": "bookstore/utils/search-sync.js",
+      "start_line": 43,
+      "end_line": 82,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.search-sync.deleteBook",
+      "file_path": "bookstore/utils/search-sync.js",
+      "start_line": 89,
+      "end_line": 128,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.search-sync.bulkIndexBooks",
+      "file_path": "bookstore/utils/search-sync.js",
+      "start_line": 135,
+      "end_line": 153,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.search-sync.convertDynamoDBFormat",
+      "file_path": "bookstore/utils/search-sync.js",
+      "start_line": 162,
+      "end_line": 197,
+      "kind": "function"
+    },
+    {
+      "id": "bookstore.utils.search-sync.closeElasticsearchClient",
+      "file_path": "bookstore/utils/search-sync.js",
+      "start_line": 202,
+      "end_line": 207,
+      "kind": "function"
+    }
+  ],
+  "config_info": {
+    "nodejs_dependencies": {
+      "dependencies": [
+        {
+          "name": "express",
+          "version": "^4.18.2"
+        },
+        {
+          "name": "cors",
+          "version": "^2.8.5"
+        },
+        {
+          "name": "body-parser",
+          "version": "^1.20.2"
+        },
+        {
+          "name": "aws-sdk",
+          "version": "^2.1490.0"
+        },
+        {
+          "name": "uuid",
+          "version": "^9.0.1"
+        },
+        {
+          "name": "redis",
+          "version": "^3.1.2"
+        },
+        {
+          "name": "@elastic/elasticsearch",
+          "version": "^7.17.0"
+        },
+        {
+          "name": "@acuris/aws-es-connection",
+          "version": "^1.0.2"
+        },
+        {
+          "name": "gremlin",
+          "version": "^3.6.0"
+        },
+        {
+          "name": "dotenv",
+          "version": "^16.3.1"
+        },
+        {
+          "name": "jsonwebtoken",
+          "version": "^9.0.2"
+        },
+        {
+          "name": "bcryptjs",
+          "version": "^2.4.3"
+        }
+      ],
+      "devDependencies": [
+        {
+          "name": "nodemon",
+          "version": "^3.0.1"
+        }
+      ]
+    }
+  },
+  "dynamodb_info": {
+    "used": true,
+    "probable_tables": [],
+    "schema_files": [
+      "bookstore/scripts/init-db.js",
+      "bookstore/utils/dynamodb.js",
+      "bookstore/config.js"
+    ]
+  }
+}

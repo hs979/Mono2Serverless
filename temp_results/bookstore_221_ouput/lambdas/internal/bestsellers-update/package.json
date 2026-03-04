@@ -1,0 +1,11 @@
+{
+  "name": "bestsellers-update",
+  "version": "1.0.0",
+  "description": "Internal Lambda function for updating bestseller rankings",
+  "dependencies": {
+    "redis": "^3.1.2"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

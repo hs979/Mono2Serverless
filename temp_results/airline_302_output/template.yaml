@@ -1,0 +1,576 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Airline Booking Application - Serverless Infrastructure
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+  StripeSecretKey:
+    Type: String
+    NoEcho: true
+    Description: Stripe Secret Key for payment processing
+
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+    Tracing: Active
+    Layers:
+      - !Ref BasePythonUtilsLayer
+  Api:
+    Cors:
+      AllowOrigin: "'*'"
+      AllowHeaders: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+
+Resources:
+  # Lambda Layer
+  BasePythonUtilsLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub ${Environment}-base-python-utils
+      Description: Common AWS SDK + shared Python helpers
+      ContentUri: layers/base-python-utils/
+      CompatibleRuntimes:
+        - python3.11
+      RetentionPolicy: Retain
+    Metadata:
+      BuildMethod: python3.11
+
+  # API Gateway
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn
+
+  # Cognito User Pool
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${Environment}-airline-booking-users
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: name
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub ${Environment}-airline-booking-client
+      UserPoolId: !Ref UserPool
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+
+  # DynamoDB Tables
+  FlightTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-flights
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: departureDate
+          AttributeType: S
+        - AttributeName: departureAirportCode
+          AttributeType: S
+        - AttributeName: arrivalAirportCode
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: departureDate-index
+          KeySchema:
+            - AttributeName: departureDate
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: route-index
+          KeySchema:
+            - AttributeName: departureAirportCode
+              KeyType: HASH
+            - AttributeName: arrivalAirportCode
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  BookingTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-bookings
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: customer
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: customer-index
+          KeySchema:
+            - AttributeName: customer
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: status-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  LoyaltyTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-loyalty
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: customerId
+          AttributeType: S
+        - AttributeName: flag
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: customerId-flag-index
+          KeySchema:
+            - AttributeName: customerId
+              KeyType: HASH
+            - AttributeName: flag
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+
+  UserProfilesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-user-profiles
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: email-index
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+
+  # Lambda Functions (13 existing)
+  FlightsSearchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/flights-search/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /flights/search
+            Method: GET
+            RestApiId: !Ref ApiGateway
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Environment:
+        Variables:
+          FLIGHT_TABLE: !Ref FlightTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlightTable
+
+  FlightsGetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/flights-get/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /flights/{flight_id}
+            Method: GET
+            RestApiId: !Ref ApiGateway
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Environment:
+        Variables:
+          FLIGHT_TABLE: !Ref FlightTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref FlightTable
+
+  FlightsReserveSeatFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/flights-reserve-seat/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /flights/{flight_id}/reserve
+            Method: POST
+            RestApiId: !Ref ApiGateway
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Environment:
+        Variables:
+          FLIGHT_TABLE: !Ref FlightTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlightTable
+
+  FlightsReleaseSeatFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/flights-release-seat/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /flights/{flight_id}/release
+            Method: POST
+            RestApiId: !Ref ApiGateway
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Environment:
+        Variables:
+          FLIGHT_TABLE: !Ref FlightTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlightTable
+
+  BookingsCreateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/bookings-create/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /bookings
+            Method: POST
+            RestApiId: !Ref ApiGateway
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Environment:
+        Variables:
+          FLIGHT_TABLE: !Ref FlightTable
+          BOOKING_TABLE: !Ref BookingTable
+          LOYALTY_TABLE: !Ref LoyaltyTable
+          NOTIFY_BOOKING_FUNCTION_NAME: !Ref NotifyBookingFunction
+          PROCESS_BOOKING_LOYALTY_FUNCTION_NAME: !Ref ProcessBookingLoyaltyFunction
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlightTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BookingTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref LoyaltyTable
+        - LambdaInvokePolicy:
+            FunctionName: !Ref NotifyBookingFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ProcessBookingLoyaltyFunction
+
+  BookingsGetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/bookings-get/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /bookings/{booking_id}
+            Method: GET
+            RestApiId: !Ref ApiGateway
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Environment:
+        Variables:
+          BOOKING_TABLE: !Ref BookingTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BookingTable
+
+  BookingsConfirmFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/bookings-confirm/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /bookings/{booking_id}/confirm
+            Method: POST
+            RestApiId: !Ref ApiGateway
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Environment:
+        Variables:
+          BOOKING_TABLE: !Ref BookingTable
+          NOTIFY_BOOKING_FUNCTION_NAME: !Ref NotifyBookingFunction
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BookingTable
+        - LambdaInvokePolicy:
+            FunctionName: !Ref NotifyBookingFunction
+
+  BookingsCancelFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/bookings-cancel/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /bookings/{booking_id}/cancel
+            Method: POST
+            RestApiId: !Ref ApiGateway
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Environment:
+        Variables:
+          FLIGHT_TABLE: !Ref FlightTable
+          BOOKING_TABLE: !Ref BookingTable
+          NOTIFY_BOOKING_FUNCTION_NAME: !Ref NotifyBookingFunction
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FlightTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BookingTable
+        - LambdaInvokePolicy:
+            FunctionName: !Ref NotifyBookingFunction
+
+  BookingsGetByCustomerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/bookings-get-by-customer/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /customers/{customer_id}/bookings
+            Method: GET
+            RestApiId: !Ref ApiGateway
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Environment:
+        Variables:
+          BOOKING_TABLE: !Ref BookingTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BookingTable
+
+  PaymentsCollectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/payments-collect/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /payments/collect
+            Method: POST
+            RestApiId: !Ref ApiGateway
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Environment:
+        Variables:
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+      Policies:
+        - SecretsManagerReadWritePolicy: {}
+
+  PaymentsRefundFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/payments-refund/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /payments/refund
+            Method: POST
+            RestApiId: !Ref ApiGateway
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Environment:
+        Variables:
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+      Policies:
+        - SecretsManagerReadWritePolicy: {}
+
+  PaymentsGetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/payments-get/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /payments/{charge_id}
+            Method: GET
+            RestApiId: !Ref ApiGateway
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Environment:
+        Variables:
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+      Policies:
+        - SecretsManagerReadWritePolicy: {}
+
+  LoyaltyGetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/loyalty-get/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /loyalty/{customer_id}
+            Method: GET
+            RestApiId: !Ref ApiGateway
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Environment:
+        Variables:
+          LOYALTY_TABLE: !Ref LoyaltyTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref LoyaltyTable
+
+  # Missing Lambda Functions (from blueprint)
+  LoyaltyAddPointsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/loyalty-add-points/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /loyalty/{customer_id}/points
+            Method: POST
+            RestApiId: !Ref ApiGateway
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Environment:
+        Variables:
+          LOYALTY_TABLE: !Ref LoyaltyTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LoyaltyTable
+
+  NotifyBookingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/notify-booking/
+      Handler: handler.lambda_handler
+      Environment:
+        Variables:
+          # No environment variables needed for notification
+      Policies:
+        # No specific policies needed for notification
+
+  ProcessBookingLoyaltyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/process-booking-loyalty/
+      Handler: handler.lambda_handler
+      Environment:
+        Variables:
+          LOYALTY_TABLE: !Ref LoyaltyTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LoyaltyTable
+
+  CognitoPostConfirmationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/cognito-post-confirmation/
+      Handler: handler.lambda_handler
+      Events:
+        CognitoEvent:
+          Type: Cognito
+          Properties:
+            UserPool: !Ref UserPool
+            Trigger: PostConfirmation
+      Environment:
+        Variables:
+          USER_PROFILES_TABLE: !Ref UserProfilesTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserProfilesTable
+
+Outputs:
+  WebEndpoint:
+    Description: "API Gateway endpoint URL for Prod stage"
+    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/"
+  UserPoolId:
+    Description: "Cognito User Pool ID"
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Description: "Cognito User Pool Client ID"
+    Value: !Ref UserPoolClient
+  Region:
+    Description: "AWS Region"
+    Value: !Ref "AWS::Region"

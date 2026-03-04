@@ -1,0 +1,11 @@
+{
+  "name": "orders-create",
+  "version": "1.0.0",
+  "description": "Lambda function to create order",
+  "dependencies": {
+    "uuid": "^9.0.1"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

@@ -1,0 +1,180 @@
+{
+  "metadata": {
+    "application_name": "shopping-cart",
+    "architecture_pattern": "Basic Serverless Architecture",
+    "has_authentication": true,
+    "has_database": true,
+    "has_file_storage": false
+  },
+  "lambda_functions": [
+    {
+      "name": "product-get-all",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["GET /product"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    },
+    {
+      "name": "product-get-by-id",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["GET /product/{product_id}"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    },
+    {
+      "name": "cart-list",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["GET /cart"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    },
+    {
+      "name": "cart-add",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["POST /cart"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    },
+    {
+      "name": "cart-update",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["PUT /cart/{product_id}"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    },
+    {
+      "name": "cart-migrate",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["POST /cart/migrate"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    },
+    {
+      "name": "cart-checkout",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["POST /cart/checkout"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    },
+    {
+      "name": "cart-get-total",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["GET /cart/{product_id}/total"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    }
+  ],
+  "dynamodb_tables": [
+    {
+      "logical_name": "ShoppingCartTable",
+      "purpose": "Single-table design for shopping cart application storing users, cart items, and product aggregates",
+      "partition_key": {"name": "pk", "type": "S"},
+      "sort_key": {"name": "sk", "type": "S"},
+      "gsi": [
+        {
+          "index_name": "username-index",
+          "partition_key": {"name": "username", "type": "S"}
+        }
+      ]
+    }
+  ],
+  "s3_buckets": [],
+  "cognito": {
+    "enabled": true,
+    "user_pool_attributes": ["email", "name"],
+    "password_policy": {
+      "min_length": 8,
+      "require_symbols": true,
+      "require_numbers": true,
+      "require_uppercase": true,
+      "require_lowercase": true
+    }
+  },
+  "api_gateway": {
+    "type": "REST",
+    "cors": {
+      "allow_origins": ["*"],
+      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "allow_headers": ["Content-Type", "Authorization", "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"],
+      "allow_credentials": true
+    },
+    "authorizer": "Cognito"
+  },
+  "lambda_invoke_permissions": [],
+  "dropped_functions": [
+    {
+      "item": "POST /auth/register",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito User Pool registration - frontend calls Cognito SDK directly"
+    },
+    {
+      "item": "POST /auth/login",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito User Pool authentication - frontend calls Cognito SDK directly"
+    },
+    {
+      "item": "login_required middleware / auth decorator",
+      "type": "code",
+      "reason": "Replaced by API Gateway Cognito Authorizer - token validation at gateway layer"
+    },
+    {
+      "item": "verifyToken function from auth.py",
+      "type": "code",
+      "reason": "Replaced by API Gateway Cognito Authorizer - JWT validation handled by AWS managed service"
+    },
+    {
+      "item": "create_token function from auth.py",
+      "type": "code",
+      "reason": "Replaced by Cognito User Pool - tokens generated by AWS Cognito service"
+    },
+    {
+      "item": "hash_password and verify_password functions from auth.py",
+      "type": "code",
+      "reason": "Replaced by Cognito User Pool - password management handled by AWS managed service"
+    },
+    {
+      "item": "init_dynamodb.py",
+      "type": "script",
+      "reason": "Infrastructure script - table creation handled by SAM template CloudFormation resources"
+    },
+    {
+      "item": "Users table (USER# items)",
+      "type": "table",
+      "reason": "User authentication moved to Cognito User Pool - user credentials and profiles managed by Cognito"
+    },
+    {
+      "item": "get_user_by_username and get_user_by_id functions",
+      "type": "code",
+      "reason": "User data retrieval replaced by Cognito User Pool - user info available from JWT claims or Cognito SDK"
+    },
+    {
+      "item": "create_user function",
+      "type": "code",
+      "reason": "User creation replaced by Cognito User Pool - user registration handled by AWS managed service"
+    }
+  ]
+}

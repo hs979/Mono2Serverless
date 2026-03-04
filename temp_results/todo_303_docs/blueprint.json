@@ -1,0 +1,140 @@
+{
+  "metadata": {
+    "application_name": "Todo Application",
+    "architecture_pattern": "Basic Serverless Architecture",
+    "has_authentication": true,
+    "has_database": true,
+    "has_file_storage": false
+  },
+  "lambda_functions": [
+    {
+      "name": "todo-get-items",
+      "runtime": "nodejs18.x",
+      "handler": "index.handler",
+      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
+      "entry_points": ["GET /item"],
+      "environment_variables": {
+        "TODOS_TABLE": "${TodosTable}"
+      }
+    },
+    {
+      "name": "todo-get-item-by-id",
+      "runtime": "nodejs18.x",
+      "handler": "index.handler",
+      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
+      "entry_points": ["GET /item/{id}"],
+      "environment_variables": {
+        "TODOS_TABLE": "${TodosTable}"
+      }
+    },
+    {
+      "name": "todo-create-item",
+      "runtime": "nodejs18.x",
+      "handler": "index.handler",
+      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
+      "entry_points": ["POST /item"],
+      "environment_variables": {
+        "TODOS_TABLE": "${TodosTable}"
+      }
+    },
+    {
+      "name": "todo-update-item",
+      "runtime": "nodejs18.x",
+      "handler": "index.handler",
+      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
+      "entry_points": ["PUT /item/{id}"],
+      "environment_variables": {
+        "TODOS_TABLE": "${TodosTable}"
+      }
+    },
+    {
+      "name": "todo-mark-item-done",
+      "runtime": "nodejs18.x",
+      "handler": "index.handler",
+      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
+      "entry_points": ["POST /item/{id}/done"],
+      "environment_variables": {
+        "TODOS_TABLE": "${TodosTable}"
+      }
+    },
+    {
+      "name": "todo-delete-item",
+      "runtime": "nodejs18.x",
+      "handler": "index.handler",
+      "source_files": ["todo/routes/todo.js", "todo/config/db.js"],
+      "entry_points": ["DELETE /item/{id}"],
+      "environment_variables": {
+        "TODOS_TABLE": "${TodosTable}"
+      }
+    }
+  ],
+  "lambda_invoke_permissions": [],
+  "dynamodb_tables": [
+    {
+      "logical_name": "Todos",
+      "purpose": "Store todo items",
+      "partition_key": {
+        "name": "userId",
+        "type": "S"
+      },
+      "sort_key": {
+        "name": "id",
+        "type": "S"
+      }
+    }
+  ],
+  "s3_buckets": [],
+  "cognito": {
+    "enabled": true,
+    "user_pool_attributes": ["email", "name"],
+    "password_policy": {
+      "min_length": 8,
+      "require_symbols": true,
+      "require_numbers": true,
+      "require_uppercase": true,
+      "require_lowercase": true
+    }
+  },
+  "api_gateway": {
+    "type": "REST",
+    "cors": {
+      "allow_origins": ["*"],
+      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "allow_headers": ["Content-Type", "Authorization", "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"],
+      "max_age": 86400
+    },
+    "authorizer": "Cognito"
+  },
+  "dropped_functions": [
+    {
+      "item": "POST /register",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito User Pool registration - frontend calls AWS Amplify/Cognito SDK directly"
+    },
+    {
+      "item": "POST /login",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito User Pool authentication - frontend calls AWS Amplify/Cognito SDK directly"
+    },
+    {
+      "item": "authenticateToken middleware",
+      "type": "code",
+      "reason": "Replaced by API Gateway Cognito Authorizer - token validation at gateway layer"
+    },
+    {
+      "item": "generateToken and verifyToken utilities",
+      "type": "code",
+      "reason": "Replaced by Cognito JWT tokens - token generation and validation handled by Cognito"
+    },
+    {
+      "item": "USER_TABLE (Users table)",
+      "type": "table",
+      "reason": "User authentication moved to Cognito User Pool - entire users table deleted"
+    },
+    {
+      "item": "init-db.js",
+      "type": "script",
+      "reason": "Infrastructure script - table creation handled by SAM template CloudFormation resources"
+    }
+  ]
+}

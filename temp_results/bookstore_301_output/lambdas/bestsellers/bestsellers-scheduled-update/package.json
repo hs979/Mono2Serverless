@@ -1,0 +1,9 @@
+{
+  "name": "bestsellers-scheduled-update",
+  "version": "1.0.0",
+  "description": "Scheduled Lambda function for daily bestsellers update",
+  "dependencies": {},
+  "engines": {
+    "node": "18.x"
+  }
+}

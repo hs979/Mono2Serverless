@@ -1,0 +1,53 @@
+
+CRITICAL ERROR:  (status code: 502)
+
+Traceback (most recent call last):
+  File "D:\AAAresearch\agent\crewai\mag-system\src\main.py", line 550, in run_crew
+    result = crew.kickoff()
+             ^^^^^^^^^^^^^^
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\crewai\crew.py", line 691, in kickoff
+    agent.set_knowledge(crew_embedder=self.embedder)
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\crewai\agent\core.py", line 257, in set_knowledge
+    self.knowledge.add_sources()
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\crewai\knowledge\knowledge.py", line 71, in add_sources
+    raise e
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\crewai\knowledge\knowledge.py", line 69, in add_sources
+    source.add()
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\crewai\knowledge\source\text_file_knowledge_source.py", line 26, in add
+    self._save_documents()
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\crewai\knowledge\source\base_file_knowledge_source.py", line 71, in _save_documents
+    self.storage.save(self.chunks)
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\crewai\knowledge\storage\knowledge_storage.py", line 113, in save
+    client.add_documents(
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\crewai\rag\chromadb\client.py", line 328, in add_documents
+    collection.upsert(
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\chromadb\api\models\Collection.py", line 442, in upsert
+    upsert_request = self._validate_and_prepare_upsert_request(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\chromadb\api\models\CollectionCommon.py", line 95, in wrapper
+    return func(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\chromadb\api\models\CollectionCommon.py", line 424, in _validate_and_prepare_upsert_request
+    upsert_embeddings = self._embed_record_set(record_set=upsert_records)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\chromadb\api\models\CollectionCommon.py", line 557, in _embed_record_set
+    return self._embed(
+           ^^^^^^^^^^^^
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\chromadb\api\models\CollectionCommon.py", line 574, in _embed
+    return self._embedding_function(input=input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\chromadb\api\types.py", line 709, in __call__
+    result = call(self, input)
+             ^^^^^^^^^^^^^^^^^
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\chromadb\utils\embedding_functions\ollama_embedding_function.py", line 66, in __call__
+    response = self._client.embed(model=self.model_name, input=input)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\ollama\_client.py", line 393, in embed
+    return self._request(
+           ^^^^^^^^^^^^^^
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\ollama\_client.py", line 189, in _request
+    return cls(**self._request_raw(*args, **kwargs).json())
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\34059\AppData\Roaming\Python\Python312\site-packages\ollama\_client.py", line 133, in _request_raw
+    raise ResponseError(e.response.text, e.response.status_code) from None
+ollama._types.ResponseError:  (status code: 502)

@@ -1,0 +1,12 @@
+{
+  "name": "search-sync-bulk",
+  "version": "1.0.0",
+  "description": "Internal Lambda function for bulk indexing books in Elasticsearch",
+  "dependencies": {
+    "@elastic/elasticsearch": "^7.17.0",
+    "@acuris/aws-es-connection": "^1.0.2"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

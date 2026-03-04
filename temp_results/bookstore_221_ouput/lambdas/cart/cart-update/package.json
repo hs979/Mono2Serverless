@@ -1,0 +1,9 @@
+{
+  "name": "cart-update",
+  "version": "1.0.0",
+  "description": "Lambda function for PUT /cart",
+  "dependencies": {},
+  "engines": {
+    "node": "18.x"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "orders-create",
+  "version": "1.0.0",
+  "description": "Lambda function for POST /orders",
+  "dependencies": {},
+  "engines": {
+    "node": "18.x"
+  }
+}

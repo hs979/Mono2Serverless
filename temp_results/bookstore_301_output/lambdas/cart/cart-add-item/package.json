@@ -1,0 +1,9 @@
+{
+  "name": "cart-add-item",
+  "version": "1.0.0",
+  "description": "Lambda function to add item to cart",
+  "dependencies": {},
+  "engines": {
+    "node": "18.x"
+  }
+}

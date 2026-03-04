@@ -1,0 +1,10 @@
+{
+  "name": "todo-get-items",
+  "version": "1.0.0",
+  "description": "Lambda function to get all todo items for a user",
+  "main": "handler.js",
+  "dependencies": {},
+  "engines": {
+    "node": "18.x"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "cart-update-item",
+  "version": "1.0.0",
+  "description": "Lambda function to update cart item quantity",
+  "main": "handler.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {},
+  "engines": {
+    "node": "18.x"
+  }
+}

@@ -1,0 +1,1089 @@
+{
+  "project_structure": "airline-booking/\n├── app.py\n├── bookingdata.json\n├── config.py\n├── data\n│   ├── __init__.py\n│   └── storage.py\n├── env.example\n├── fix_admin_user.py\n├── init_dynamodb_tables.py\n├── requirements.txt\n├── run.py\n└── services\n    ├── __init__.py\n    ├── auth.py\n    ├── booking.py\n    ├── catalog.py\n    ├── loyalty.py\n    └── payment.py",
+  "entry_points": [
+    {
+      "file": "airline-booking/app.py",
+      "method": "GET",
+      "path": "/flights/search"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "GET",
+      "path": "/flights/<flight_id>"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "POST",
+      "path": "/flights/<flight_id>/reserve"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "POST",
+      "path": "/flights/<flight_id>/release"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "POST",
+      "path": "/bookings"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "GET",
+      "path": "/bookings/<booking_id>"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "POST",
+      "path": "/bookings/<booking_id>/confirm"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "POST",
+      "path": "/bookings/<booking_id>/cancel"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "GET",
+      "path": "/customers/<customer_id>/bookings"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "POST",
+      "path": "/payments/collect"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "POST",
+      "path": "/payments/refund"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "GET",
+      "path": "/payments/<charge_id>"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "GET",
+      "path": "/loyalty/<customer_id>"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "POST",
+      "path": "/loyalty/<customer_id>/points"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "POST",
+      "path": "/auth/register"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "GET",
+      "path": "/auth/me"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "GET",
+      "path": "/auth/users"
+    },
+    {
+      "file": "airline-booking/app.py",
+      "method": "GET",
+      "path": "/api"
+    }
+  ],
+  "dependency_graph": {
+    "airline-booking/app.py": [
+      "data.storage",
+      "flask",
+      "flask_cors",
+      "os",
+      "services.auth",
+      "services.booking",
+      "services.catalog",
+      "services.loyalty",
+      "services.payment",
+      "sys"
+    ],
+    "airline-booking/config.py": [
+      "dotenv",
+      "os"
+    ],
+    "airline-booking/fix_admin_user.py": [
+      "boto3",
+      "boto3.dynamodb.conditions",
+      "datetime",
+      "hashlib",
+      "os",
+      "secrets",
+      "sys"
+    ],
+    "airline-booking/init_dynamodb_tables.py": [
+      "argparse",
+      "boto3",
+      "os",
+      "sys"
+    ],
+    "airline-booking/run.py": [
+      "app",
+      "config",
+      "os",
+      "subprocess",
+      "sys",
+      "traceback"
+    ],
+    "airline-booking/data/storage.py": [
+      "boto3",
+      "boto3.dynamodb.conditions",
+      "datetime",
+      "decimal",
+      "os",
+      "typing",
+      "uuid"
+    ],
+    "airline-booking/data/__init__.py": [],
+    "airline-booking/services/auth.py": [
+      "boto3",
+      "boto3.dynamodb.conditions",
+      "data.storage",
+      "datetime",
+      "flask",
+      "functools",
+      "hashlib",
+      "jwt",
+      "os",
+      "secrets",
+      "typing"
+    ],
+    "airline-booking/services/booking.py": [
+      "data.storage",
+      "secrets",
+      "typing"
+    ],
+    "airline-booking/services/catalog.py": [
+      "data.storage",
+      "typing"
+    ],
+    "airline-booking/services/loyalty.py": [
+      "data.storage"
+    ],
+    "airline-booking/services/payment.py": [
+      "os",
+      "secrets",
+      "stripe",
+      "typing"
+    ],
+    "airline-booking/services/__init__.py": []
+  },
+  "file_tags": {
+    "airline-booking/app.py": [
+      "Auth",
+      "DynamoDB",
+      "FileUpload"
+    ],
+    "airline-booking/config.py": [
+      "Auth",
+      "DynamoDB"
+    ],
+    "airline-booking/fix_admin_user.py": [
+      "AWS_SDK",
+      "DynamoDB"
+    ],
+    "airline-booking/init_dynamodb_tables.py": [
+      "AWS_SDK",
+      "Auth",
+      "DynamoDB"
+    ],
+    "airline-booking/run.py": [
+      "AWS_SDK",
+      "Auth"
+    ],
+    "airline-booking/data/storage.py": [
+      "AWS_SDK",
+      "DynamoDB",
+      "ScheduledTask"
+    ],
+    "airline-booking/services/auth.py": [
+      "AWS_SDK",
+      "Auth",
+      "DynamoDB"
+    ],
+    "airline-booking/services/catalog.py": [
+      "ScheduledTask"
+    ]
+  },
+  "symbol_table": [
+    {
+      "id": "airline-booking.app.handle_error",
+      "file_path": "airline-booking/app.py",
+      "start_line": 29,
+      "end_line": 34
+    },
+    {
+      "id": "airline-booking.app.search_flights",
+      "file_path": "airline-booking/app.py",
+      "start_line": 39,
+      "end_line": 52
+    },
+    {
+      "id": "airline-booking.app.get_flight",
+      "file_path": "airline-booking/app.py",
+      "start_line": 56,
+      "end_line": 59
+    },
+    {
+      "id": "airline-booking.app.reserve_flight_seat",
+      "file_path": "airline-booking/app.py",
+      "start_line": 63,
+      "end_line": 66
+    },
+    {
+      "id": "airline-booking.app.release_flight_seat",
+      "file_path": "airline-booking/app.py",
+      "start_line": 70,
+      "end_line": 73
+    },
+    {
+      "id": "airline-booking.app.create_booking",
+      "file_path": "airline-booking/app.py",
+      "start_line": 79,
+      "end_line": 248
+    },
+    {
+      "id": "airline-booking.app.get_booking",
+      "file_path": "airline-booking/app.py",
+      "start_line": 253,
+      "end_line": 256
+    },
+    {
+      "id": "airline-booking.app.confirm_booking",
+      "file_path": "airline-booking/app.py",
+      "start_line": 261,
+      "end_line": 268
+    },
+    {
+      "id": "airline-booking.app.cancel_booking",
+      "file_path": "airline-booking/app.py",
+      "start_line": 273,
+      "end_line": 306
+    },
+    {
+      "id": "airline-booking.app.get_customer_bookings",
+      "file_path": "airline-booking/app.py",
+      "start_line": 311,
+      "end_line": 315
+    },
+    {
+      "id": "airline-booking.app.collect_payment",
+      "file_path": "airline-booking/app.py",
+      "start_line": 320,
+      "end_line": 331
+    },
+    {
+      "id": "airline-booking.app.refund_payment",
+      "file_path": "airline-booking/app.py",
+      "start_line": 335,
+      "end_line": 346
+    },
+    {
+      "id": "airline-booking.app.get_payment",
+      "file_path": "airline-booking/app.py",
+      "start_line": 350,
+      "end_line": 353
+    },
+    {
+      "id": "airline-booking.app.get_loyalty",
+      "file_path": "airline-booking/app.py",
+      "start_line": 359,
+      "end_line": 362
+    },
+    {
+      "id": "airline-booking.app.add_loyalty_points",
+      "file_path": "airline-booking/app.py",
+      "start_line": 367,
+      "end_line": 378
+    },
+    {
+      "id": "airline-booking.app.register",
+      "file_path": "airline-booking/app.py",
+      "start_line": 383,
+      "end_line": 401
+    },
+    {
+      "id": "airline-booking.app.login",
+      "file_path": "airline-booking/app.py",
+      "start_line": 405,
+      "end_line": 432
+    },
+    {
+      "id": "airline-booking.app.get_current_user",
+      "file_path": "airline-booking/app.py",
+      "start_line": 437,
+      "end_line": 444
+    },
+    {
+      "id": "airline-booking.app.list_users",
+      "file_path": "airline-booking/app.py",
+      "start_line": 449,
+      "end_line": 452
+    },
+    {
+      "id": "airline-booking.app.api_index",
+      "file_path": "airline-booking/app.py",
+      "start_line": 457,
+      "end_line": 501
+    },
+    {
+      "id": "airline-booking.config.Config",
+      "file_path": "airline-booking/config.py",
+      "start_line": 12,
+      "end_line": 107
+    },
+    {
+      "id": "airline-booking.config.Config.validate",
+      "file_path": "airline-booking/config.py",
+      "start_line": 40,
+      "end_line": 68
+    },
+    {
+      "id": "airline-booking.config.Config.print_config",
+      "file_path": "airline-booking/config.py",
+      "start_line": 71,
+      "end_line": 107
+    },
+    {
+      "id": "airline-booking.config.validate",
+      "file_path": "airline-booking/config.py",
+      "start_line": 40,
+      "end_line": 68
+    },
+    {
+      "id": "airline-booking.config.print_config",
+      "file_path": "airline-booking/config.py",
+      "start_line": 71,
+      "end_line": 107
+    },
+    {
+      "id": "airline-booking.fix_admin_user.fix_admin_permissions",
+      "file_path": "airline-booking/fix_admin_user.py",
+      "start_line": 12,
+      "end_line": 77
+    },
+    {
+      "id": "airline-booking.init_dynamodb_tables.create_tables",
+      "file_path": "airline-booking/init_dynamodb_tables.py",
+      "start_line": 10,
+      "end_line": 170
+    },
+    {
+      "id": "airline-booking.init_dynamodb_tables.delete_tables",
+      "file_path": "airline-booking/init_dynamodb_tables.py",
+      "start_line": 173,
+      "end_line": 212
+    },
+    {
+      "id": "airline-booking.run.check_dependencies",
+      "file_path": "airline-booking/run.py",
+      "start_line": 8,
+      "end_line": 29
+    },
+    {
+      "id": "airline-booking.run.check_config",
+      "file_path": "airline-booking/run.py",
+      "start_line": 31,
+      "end_line": 39
+    },
+    {
+      "id": "airline-booking.run.main",
+      "file_path": "airline-booking/run.py",
+      "start_line": 41,
+      "end_line": 71
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 14,
+      "end_line": 332
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage.__init__",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 17,
+      "end_line": 38
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage._python_obj_to_dynamodb",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 40,
+      "end_line": 48
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage._dynamodb_to_python_obj",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 50,
+      "end_line": 61
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage._init_sample_data",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 63,
+      "end_line": 117
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage.get_flight",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 120,
+      "end_line": 129
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage.get_flights_by_schedule",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 131,
+      "end_line": 147
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage.reserve_flight_seat",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 149,
+      "end_line": 167
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage.release_flight_seat",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 169,
+      "end_line": 192
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage.create_booking",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 195,
+      "end_line": 216
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage.get_booking",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 218,
+      "end_line": 227
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage.update_booking_status",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 229,
+      "end_line": 254
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage.get_bookings_by_customer",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 256,
+      "end_line": 271
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage.add_loyalty_points",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 274,
+      "end_line": 290
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage.get_loyalty_points",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 292,
+      "end_line": 314
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage.get_loyalty_level",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 316,
+      "end_line": 323
+    },
+    {
+      "id": "airline-booking.data.storage.DataStorage.get_remaining_points_to_next_tier",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 325,
+      "end_line": 332
+    },
+    {
+      "id": "airline-booking.data.storage.__init__",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 17,
+      "end_line": 38
+    },
+    {
+      "id": "airline-booking.data.storage._python_obj_to_dynamodb",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 40,
+      "end_line": 48
+    },
+    {
+      "id": "airline-booking.data.storage._dynamodb_to_python_obj",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 50,
+      "end_line": 61
+    },
+    {
+      "id": "airline-booking.data.storage._init_sample_data",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 63,
+      "end_line": 117
+    },
+    {
+      "id": "airline-booking.data.storage.get_flight",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 120,
+      "end_line": 129
+    },
+    {
+      "id": "airline-booking.data.storage.get_flights_by_schedule",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 131,
+      "end_line": 147
+    },
+    {
+      "id": "airline-booking.data.storage.reserve_flight_seat",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 149,
+      "end_line": 167
+    },
+    {
+      "id": "airline-booking.data.storage.release_flight_seat",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 169,
+      "end_line": 192
+    },
+    {
+      "id": "airline-booking.data.storage.create_booking",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 195,
+      "end_line": 216
+    },
+    {
+      "id": "airline-booking.data.storage.get_booking",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 218,
+      "end_line": 227
+    },
+    {
+      "id": "airline-booking.data.storage.update_booking_status",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 229,
+      "end_line": 254
+    },
+    {
+      "id": "airline-booking.data.storage.get_bookings_by_customer",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 256,
+      "end_line": 271
+    },
+    {
+      "id": "airline-booking.data.storage.add_loyalty_points",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 274,
+      "end_line": 290
+    },
+    {
+      "id": "airline-booking.data.storage.get_loyalty_points",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 292,
+      "end_line": 314
+    },
+    {
+      "id": "airline-booking.data.storage.get_loyalty_level",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 316,
+      "end_line": 323
+    },
+    {
+      "id": "airline-booking.data.storage.get_remaining_points_to_next_tier",
+      "file_path": "airline-booking/data/storage.py",
+      "start_line": 325,
+      "end_line": 332
+    },
+    {
+      "id": "airline-booking.services.auth.AuthService",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 17,
+      "end_line": 299
+    },
+    {
+      "id": "airline-booking.services.auth.AuthService._init_dynamodb",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 32,
+      "end_line": 40
+    },
+    {
+      "id": "airline-booking.services.auth.AuthService._hash_password",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 43,
+      "end_line": 45
+    },
+    {
+      "id": "airline-booking.services.auth.AuthService._init_default_users",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 48,
+      "end_line": 65
+    },
+    {
+      "id": "airline-booking.services.auth.AuthService.register_user",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 68,
+      "end_line": 122
+    },
+    {
+      "id": "airline-booking.services.auth.AuthService.authenticate_user",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 125,
+      "end_line": 158
+    },
+    {
+      "id": "airline-booking.services.auth.AuthService.create_access_token",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 161,
+      "end_line": 186
+    },
+    {
+      "id": "airline-booking.services.auth.AuthService.decode_token",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 189,
+      "end_line": 209
+    },
+    {
+      "id": "airline-booking.services.auth.AuthService.get_user_from_token",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 212,
+      "end_line": 236
+    },
+    {
+      "id": "airline-booking.services.auth.AuthService.add_to_admin_group",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 239,
+      "end_line": 265
+    },
+    {
+      "id": "airline-booking.services.auth.AuthService.is_admin",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 268,
+      "end_line": 278
+    },
+    {
+      "id": "airline-booking.services.auth.AuthService.get_all_users",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 281,
+      "end_line": 299
+    },
+    {
+      "id": "airline-booking.services.auth._init_dynamodb",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 32,
+      "end_line": 40
+    },
+    {
+      "id": "airline-booking.services.auth._hash_password",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 43,
+      "end_line": 45
+    },
+    {
+      "id": "airline-booking.services.auth._init_default_users",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 48,
+      "end_line": 65
+    },
+    {
+      "id": "airline-booking.services.auth.register_user",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 68,
+      "end_line": 122
+    },
+    {
+      "id": "airline-booking.services.auth.authenticate_user",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 125,
+      "end_line": 158
+    },
+    {
+      "id": "airline-booking.services.auth.create_access_token",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 161,
+      "end_line": 186
+    },
+    {
+      "id": "airline-booking.services.auth.decode_token",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 189,
+      "end_line": 209
+    },
+    {
+      "id": "airline-booking.services.auth.get_user_from_token",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 212,
+      "end_line": 236
+    },
+    {
+      "id": "airline-booking.services.auth.add_to_admin_group",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 239,
+      "end_line": 265
+    },
+    {
+      "id": "airline-booking.services.auth.is_admin",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 268,
+      "end_line": 278
+    },
+    {
+      "id": "airline-booking.services.auth.get_all_users",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 281,
+      "end_line": 299
+    },
+    {
+      "id": "airline-booking.services.auth.login_required",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 304,
+      "end_line": 334
+    },
+    {
+      "id": "airline-booking.services.auth.decorated_function",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 309,
+      "end_line": 332
+    },
+    {
+      "id": "airline-booking.services.auth.admin_required",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 337,
+      "end_line": 370
+    },
+    {
+      "id": "airline-booking.services.auth.decorated_function",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 342,
+      "end_line": 368
+    },
+    {
+      "id": "airline-booking.services.auth.owner_or_admin_required",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 373,
+      "end_line": 415
+    },
+    {
+      "id": "airline-booking.services.auth.decorated_function",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 379,
+      "end_line": 413
+    },
+    {
+      "id": "airline-booking.services.auth.booking_owner_or_admin_required",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 418,
+      "end_line": 468
+    },
+    {
+      "id": "airline-booking.services.auth.decorated_function",
+      "file_path": "airline-booking/services/auth.py",
+      "start_line": 424,
+      "end_line": 466
+    },
+    {
+      "id": "airline-booking.services.booking.BookingService",
+      "file_path": "airline-booking/services/booking.py",
+      "start_line": 10,
+      "end_line": 149
+    },
+    {
+      "id": "airline-booking.services.booking.BookingService.validate_booking_request",
+      "file_path": "airline-booking/services/booking.py",
+      "start_line": 14,
+      "end_line": 17
+    },
+    {
+      "id": "airline-booking.services.booking.BookingService.reserve_booking",
+      "file_path": "airline-booking/services/booking.py",
+      "start_line": 20,
+      "end_line": 41
+    },
+    {
+      "id": "airline-booking.services.booking.BookingService.confirm_booking",
+      "file_path": "airline-booking/services/booking.py",
+      "start_line": 44,
+      "end_line": 67
+    },
+    {
+      "id": "airline-booking.services.booking.BookingService.cancel_booking",
+      "file_path": "airline-booking/services/booking.py",
+      "start_line": 70,
+      "end_line": 90
+    },
+    {
+      "id": "airline-booking.services.booking.BookingService.get_booking",
+      "file_path": "airline-booking/services/booking.py",
+      "start_line": 93,
+      "end_line": 109
+    },
+    {
+      "id": "airline-booking.services.booking.BookingService.get_customer_bookings",
+      "file_path": "airline-booking/services/booking.py",
+      "start_line": 112,
+      "end_line": 123
+    },
+    {
+      "id": "airline-booking.services.booking.BookingService.notify_booking",
+      "file_path": "airline-booking/services/booking.py",
+      "start_line": 126,
+      "end_line": 149
+    },
+    {
+      "id": "airline-booking.services.booking.validate_booking_request",
+      "file_path": "airline-booking/services/booking.py",
+      "start_line": 14,
+      "end_line": 17
+    },
+    {
+      "id": "airline-booking.services.booking.reserve_booking",
+      "file_path": "airline-booking/services/booking.py",
+      "start_line": 20,
+      "end_line": 41
+    },
+    {
+      "id": "airline-booking.services.booking.confirm_booking",
+      "file_path": "airline-booking/services/booking.py",
+      "start_line": 44,
+      "end_line": 67
+    },
+    {
+      "id": "airline-booking.services.booking.cancel_booking",
+      "file_path": "airline-booking/services/booking.py",
+      "start_line": 70,
+      "end_line": 90
+    },
+    {
+      "id": "airline-booking.services.booking.get_booking",
+      "file_path": "airline-booking/services/booking.py",
+      "start_line": 93,
+      "end_line": 109
+    },
+    {
+      "id": "airline-booking.services.booking.get_customer_bookings",
+      "file_path": "airline-booking/services/booking.py",
+      "start_line": 112,
+      "end_line": 123
+    },
+    {
+      "id": "airline-booking.services.booking.notify_booking",
+      "file_path": "airline-booking/services/booking.py",
+      "start_line": 126,
+      "end_line": 149
+    },
+    {
+      "id": "airline-booking.services.catalog.CatalogService",
+      "file_path": "airline-booking/services/catalog.py",
+      "start_line": 9,
+      "end_line": 87
+    },
+    {
+      "id": "airline-booking.services.catalog.CatalogService.search_flights",
+      "file_path": "airline-booking/services/catalog.py",
+      "start_line": 13,
+      "end_line": 28
+    },
+    {
+      "id": "airline-booking.services.catalog.CatalogService.get_flight",
+      "file_path": "airline-booking/services/catalog.py",
+      "start_line": 31,
+      "end_line": 47
+    },
+    {
+      "id": "airline-booking.services.catalog.CatalogService.reserve_flight_seat",
+      "file_path": "airline-booking/services/catalog.py",
+      "start_line": 50,
+      "end_line": 67
+    },
+    {
+      "id": "airline-booking.services.catalog.CatalogService.release_flight_seat",
+      "file_path": "airline-booking/services/catalog.py",
+      "start_line": 70,
+      "end_line": 87
+    },
+    {
+      "id": "airline-booking.services.catalog.search_flights",
+      "file_path": "airline-booking/services/catalog.py",
+      "start_line": 13,
+      "end_line": 28
+    },
+    {
+      "id": "airline-booking.services.catalog.get_flight",
+      "file_path": "airline-booking/services/catalog.py",
+      "start_line": 31,
+      "end_line": 47
+    },
+    {
+      "id": "airline-booking.services.catalog.reserve_flight_seat",
+      "file_path": "airline-booking/services/catalog.py",
+      "start_line": 50,
+      "end_line": 67
+    },
+    {
+      "id": "airline-booking.services.catalog.release_flight_seat",
+      "file_path": "airline-booking/services/catalog.py",
+      "start_line": 70,
+      "end_line": 87
+    },
+    {
+      "id": "airline-booking.services.loyalty.LoyaltyService",
+      "file_path": "airline-booking/services/loyalty.py",
+      "start_line": 8,
+      "end_line": 81
+    },
+    {
+      "id": "airline-booking.services.loyalty.LoyaltyService.get_customer_loyalty",
+      "file_path": "airline-booking/services/loyalty.py",
+      "start_line": 17,
+      "end_line": 38
+    },
+    {
+      "id": "airline-booking.services.loyalty.LoyaltyService.add_loyalty_points",
+      "file_path": "airline-booking/services/loyalty.py",
+      "start_line": 41,
+      "end_line": 64
+    },
+    {
+      "id": "airline-booking.services.loyalty.LoyaltyService.process_booking_loyalty",
+      "file_path": "airline-booking/services/loyalty.py",
+      "start_line": 67,
+      "end_line": 81
+    },
+    {
+      "id": "airline-booking.services.loyalty.get_customer_loyalty",
+      "file_path": "airline-booking/services/loyalty.py",
+      "start_line": 17,
+      "end_line": 38
+    },
+    {
+      "id": "airline-booking.services.loyalty.add_loyalty_points",
+      "file_path": "airline-booking/services/loyalty.py",
+      "start_line": 41,
+      "end_line": 64
+    },
+    {
+      "id": "airline-booking.services.loyalty.process_booking_loyalty",
+      "file_path": "airline-booking/services/loyalty.py",
+      "start_line": 67,
+      "end_line": 81
+    },
+    {
+      "id": "airline-booking.services.payment.PaymentService",
+      "file_path": "airline-booking/services/payment.py",
+      "start_line": 17,
+      "end_line": 325
+    },
+    {
+      "id": "airline-booking.services.payment.PaymentService._configure_stripe",
+      "file_path": "airline-booking/services/payment.py",
+      "start_line": 28,
+      "end_line": 44
+    },
+    {
+      "id": "airline-booking.services.payment.PaymentService._is_using_real_stripe",
+      "file_path": "airline-booking/services/payment.py",
+      "start_line": 47,
+      "end_line": 50
+    },
+    {
+      "id": "airline-booking.services.payment.PaymentService.collect_payment",
+      "file_path": "airline-booking/services/payment.py",
+      "start_line": 53,
+      "end_line": 182
+    },
+    {
+      "id": "airline-booking.services.payment.PaymentService.refund_payment",
+      "file_path": "airline-booking/services/payment.py",
+      "start_line": 185,
+      "end_line": 281
+    },
+    {
+      "id": "airline-booking.services.payment.PaymentService.get_payment",
+      "file_path": "airline-booking/services/payment.py",
+      "start_line": 284,
+      "end_line": 325
+    },
+    {
+      "id": "airline-booking.services.payment._configure_stripe",
+      "file_path": "airline-booking/services/payment.py",
+      "start_line": 28,
+      "end_line": 44
+    },
+    {
+      "id": "airline-booking.services.payment._is_using_real_stripe",
+      "file_path": "airline-booking/services/payment.py",
+      "start_line": 47,
+      "end_line": 50
+    },
+    {
+      "id": "airline-booking.services.payment.collect_payment",
+      "file_path": "airline-booking/services/payment.py",
+      "start_line": 53,
+      "end_line": 182
+    },
+    {
+      "id": "airline-booking.services.payment.refund_payment",
+      "file_path": "airline-booking/services/payment.py",
+      "start_line": 185,
+      "end_line": 281
+    },
+    {
+      "id": "airline-booking.services.payment.get_payment",
+      "file_path": "airline-booking/services/payment.py",
+      "start_line": 284,
+      "end_line": 325
+    }
+  ],
+  "config_info": {
+    "python_dependencies": [
+      {
+        "name": "Flask",
+        "version": "3.0.0"
+      },
+      {
+        "name": "Werkzeug",
+        "version": "3.0.1"
+      },
+      {
+        "name": "PyJWT",
+        "version": "2.8.0"
+      },
+      {
+        "name": "requests",
+        "version": "2.31.0"
+      },
+      {
+        "name": "Flask-CORS",
+        "version": "4.0.0"
+      },
+      {
+        "name": "boto3",
+        "version": "1.34.0"
+      },
+      {
+        "name": "python-dotenv",
+        "version": "1.0.0"
+      },
+      {
+        "name": "stripe",
+        "version": "7.8.0"
+      }
+    ]
+  },
+  "dynamodb_info": {
+    "used": true,
+    "probable_tables": [],
+    "schema_files": [
+      "airline-booking/init_dynamodb_tables.py",
+      "airline-booking/app.py",
+      "airline-booking/config.py"
+    ]
+  }
+}

@@ -1,0 +1,2 @@
+# No additional dependencies beyond base-python-utils layer
+# All required packages are provided by the base-python-utils layer

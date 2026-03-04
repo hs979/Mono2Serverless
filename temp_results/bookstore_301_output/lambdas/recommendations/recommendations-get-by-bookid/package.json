@@ -1,0 +1,11 @@
+{
+  "name": "recommendations-get-by-bookid",
+  "version": "1.0.0",
+  "description": "Lambda function to get recommendations by book ID",
+  "dependencies": {
+    "gremlin": "^3.6.0"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

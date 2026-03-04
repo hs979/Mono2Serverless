@@ -1,0 +1,329 @@
+{
+  "metadata": {
+    "application_name": "bookstore",
+    "architecture_pattern": "Basic Serverless Architecture",
+    "has_authentication": true,
+    "has_database": true,
+    "has_file_storage": false
+  },
+  "communication_strategy": "sdk_direct_invocation",
+  "common_dependencies": {
+    "nodejs": ["aws-sdk"]
+  },
+  "lambda_layers": [
+    {
+      "name": "base-node-utils",
+      "runtime_family": "nodejs",
+      "compatible_runtimes": ["nodejs18.x"],
+      "dependencies": ["aws-sdk"],
+      "purpose": "Common AWS SDK + shared Node helpers used by most Lambdas"
+    }
+  ],
+  "lambda_functions": [
+    {
+      "name": "bestsellers-get",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/routes/bestsellers.js", "bookstore/utils/bestsellers.js"],
+      "entry_points": ["GET /bestsellers"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "REDIS_HOST": "${RedisHost}",
+        "REDIS_PORT": "${RedisPort}",
+        "REDIS_ENABLED": "${RedisEnabled}"
+      }
+    },
+    {
+      "name": "books-get-all",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/routes/books.js", "bookstore/utils/dynamodb.js"],
+      "entry_points": ["GET /books"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "BOOKS_TABLE": "${BooksTable}"
+      }
+    },
+    {
+      "name": "books-get-by-id",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/routes/books.js", "bookstore/utils/dynamodb.js"],
+      "entry_points": ["GET /books/{id}"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "BOOKS_TABLE": "${BooksTable}"
+      }
+    },
+    {
+      "name": "cart-get-all",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/routes/cart.js", "bookstore/utils/dynamodb.js"],
+      "entry_points": ["GET /cart"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "CART_TABLE": "${CartTable}"
+      }
+    },
+    {
+      "name": "cart-get-by-bookid",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/routes/cart.js", "bookstore/utils/dynamodb.js"],
+      "entry_points": ["GET /cart/{bookId}"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "CART_TABLE": "${CartTable}"
+      }
+    },
+    {
+      "name": "cart-add-item",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/routes/cart.js", "bookstore/utils/dynamodb.js"],
+      "entry_points": ["POST /cart"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "CART_TABLE": "${CartTable}"
+      }
+    },
+    {
+      "name": "cart-update-item",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/routes/cart.js", "bookstore/utils/dynamodb.js"],
+      "entry_points": ["PUT /cart"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "CART_TABLE": "${CartTable}"
+      }
+    },
+    {
+      "name": "cart-delete-item",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/routes/cart.js", "bookstore/utils/dynamodb.js"],
+      "entry_points": ["DELETE /cart"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "CART_TABLE": "${CartTable}"
+      }
+    },
+    {
+      "name": "orders-get-all",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/routes/orders.js", "bookstore/utils/dynamodb.js"],
+      "entry_points": ["GET /orders"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "ORDERS_TABLE": "${OrdersTable}"
+      }
+    },
+    {
+      "name": "orders-create",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/routes/orders.js", "bookstore/utils/dynamodb.js"],
+      "entry_points": ["POST /orders"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "ORDERS_TABLE": "${OrdersTable}",
+        "CART_TABLE": "${CartTable}",
+        "BESTSELLERS_UPDATE_FUNCTION_NAME": "${BestsellersUpdateFunctionName}"
+      }
+    },
+    {
+      "name": "recommendations-get-all",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/routes/recommendations.js"],
+      "entry_points": ["GET /recommendations"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "NEPTUNE_ENDPOINT": "${NeptuneEndpoint}"
+      }
+    },
+    {
+      "name": "recommendations-get-by-bookid",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/routes/recommendations.js"],
+      "entry_points": ["GET /recommendations/{bookId}"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "NEPTUNE_ENDPOINT": "${NeptuneEndpoint}"
+      }
+    },
+    {
+      "name": "search-get",
+      "trigger_type": "api",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/routes/search.js", "bookstore/utils/search-sync.js"],
+      "entry_points": ["GET /search"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "ELASTICSEARCH_ENDPOINT": "${ElasticsearchEndpoint}",
+        "BOOKS_TABLE": "${BooksTable}"
+      }
+    },
+    {
+      "name": "bestsellers-update",
+      "trigger_type": "internal",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/utils/bestsellers.js"],
+      "internal_path": "POST /internal/bestsellers/update",
+      "called_by": ["orders-create"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "REDIS_HOST": "${RedisHost}",
+        "REDIS_PORT": "${RedisPort}",
+        "REDIS_ENABLED": "${RedisEnabled}"
+      }
+    },
+    {
+      "name": "bestsellers-scheduled-update",
+      "trigger_type": "scheduled",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/utils/bestsellers.js"],
+      "schedule_expression": "rate(1 day)",
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "REDIS_HOST": "${RedisHost}",
+        "REDIS_PORT": "${RedisPort}",
+        "REDIS_ENABLED": "${RedisEnabled}"
+      }
+    },
+    {
+      "name": "user-post-confirmation",
+      "trigger_type": "cognito",
+      "runtime": "nodejs18.x",
+      "handler": "handler.lambdaHandler",
+      "source_files": ["bookstore/routes/auth.js", "bookstore/utils/dynamodb.js"],
+      "layers": ["base-node-utils"],
+      "environment_variables": {
+        "USER_PROFILES_TABLE": "${UserProfilesTable}"
+      }
+    }
+  ],
+  "dynamodb_tables": [
+    {
+      "logical_name": "Books",
+      "purpose": "Store book information and inventory",
+      "schema_source_files": ["bookstore/scripts/init-db.js"]
+    },
+    {
+      "logical_name": "Cart",
+      "purpose": "Store user shopping cart items",
+      "schema_source_files": ["bookstore/scripts/init-db.js"]
+    },
+    {
+      "logical_name": "Orders",
+      "purpose": "Store user order history",
+      "schema_source_files": ["bookstore/scripts/init-db.js"]
+    },
+    {
+      "logical_name": "UserProfiles",
+      "purpose": "Store user profile data (excluding credentials)",
+      "schema_source_files": ["bookstore/scripts/init-db.js"]
+    }
+  ],
+  "s3_buckets": [],
+  "cognito": {
+    "enabled": true,
+    "user_pool_attributes": ["email", "name"],
+    "password_policy": {
+      "min_length": 8,
+      "require_symbols": true,
+      "require_numbers": true,
+      "require_lowercase": true,
+      "require_uppercase": true
+    },
+    "triggers": {
+      "post_confirmation": {
+        "enabled": true,
+        "purpose": "Create user profile record in DynamoDB after successful registration"
+      }
+    }
+  },
+  "api_gateway": {
+    "type": "REST",
+    "cors": {
+      "allow_origins": ["*"],
+      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "allow_headers": ["Content-Type", "Authorization", "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"],
+      "max_age": 86400
+    },
+    "authorizer": "Cognito"
+  },
+  "table_initialization": [
+    {
+      "table": "Books",
+      "source_file": "bookstore/scripts/init-db.js",
+      "strategy": "Custom Resource Lambda during CloudFormation deployment"
+    }
+  ],
+  "lambda_invoke_permissions": [
+    {
+      "invoker": "orders-create",
+      "target": "bestsellers-update"
+    }
+  ],
+  "dropped_functions": [
+    {
+      "item": "POST /register",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito User Pool - Frontend calls AWS Amplify Auth.signUp()",
+      "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signUp({username: email, password, attributes: {email, name}})"
+    },
+    {
+      "item": "POST /login",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito User Pool - Frontend calls AWS Amplify Auth.signIn()",
+      "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signIn(email, password)"
+    },
+    {
+      "item": "POST /refresh",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito automatic token refresh",
+      "frontend_integration": "AWS Amplify automatically refreshes tokens - no code needed"
+    },
+    {
+      "item": "GET /me",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito User Pool - Frontend calls AWS Amplify Auth.currentAuthenticatedUser()",
+      "frontend_integration": "import { Auth } from 'aws-amplify'; const user = await Auth.currentAuthenticatedUser()"
+    },
+    {
+      "item": "verifyToken middleware / auth decorators",
+      "type": "code",
+      "reason": "Replaced by API Gateway Cognito Authorizer - Token validation at gateway layer, not in Lambda code"
+    },
+    {
+      "item": "init-db.js",
+      "type": "script",
+      "reason": "Infrastructure script - Table creation handled by SAM template CloudFormation resources"
+    },
+    {
+      "item": "Users table (credentials: email, password, password_hash, salt)",
+      "type": "table",
+      "reason": "User authentication moved to Cognito User Pool - Credentials table deleted; create UserProfiles ONLY if backend needs extra business profile fields"
+    }
+  ]
+}

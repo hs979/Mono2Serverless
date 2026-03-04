@@ -1,0 +1,271 @@
+{
+  "metadata": {
+    "application_name": "shopping-cart",
+    "architecture_pattern": "Basic Serverless Architecture",
+    "has_authentication": true,
+    "has_database": true,
+    "has_file_storage": false
+  },
+  "communication_strategy": "sdk_direct_invocation",
+  "common_dependencies": {
+    "python": ["boto3"]
+  },
+  "lambda_layers": [
+    {
+      "name": "base-python-utils",
+      "runtime_family": "python",
+      "compatible_runtimes": ["python3.11"],
+      "dependencies": ["boto3"],
+      "purpose": "Common AWS SDK + shared Python helpers used by most Lambdas"
+    }
+  ],
+  "lambda_functions": [
+    {
+      "name": "products-list",
+      "trigger_type": "api",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["GET /product"],
+      "layers": ["base-python-utils"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    },
+    {
+      "name": "products-get",
+      "trigger_type": "api",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["GET /product/{product_id}"],
+      "layers": ["base-python-utils"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    },
+    {
+      "name": "cart-list",
+      "trigger_type": "api",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["GET /cart"],
+      "layers": ["base-python-utils"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    },
+    {
+      "name": "cart-add",
+      "trigger_type": "api",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["POST /cart"],
+      "layers": ["base-python-utils"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}",
+        "PRODUCT_AGGREGATE_UPDATE_FUNCTION_NAME": "${ProductAggregateUpdateFunction}"
+      }
+    },
+    {
+      "name": "cart-update",
+      "trigger_type": "api",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["PUT /cart/{product_id}"],
+      "layers": ["base-python-utils"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}",
+        "PRODUCT_AGGREGATE_UPDATE_FUNCTION_NAME": "${ProductAggregateUpdateFunction}"
+      }
+    },
+    {
+      "name": "cart-migrate",
+      "trigger_type": "api",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["POST /cart/migrate"],
+      "layers": ["base-python-utils"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}",
+        "CART_DELETE_FUNCTION_NAME": "${CartDeleteFunction}"
+      }
+    },
+    {
+      "name": "cart-checkout",
+      "trigger_type": "api",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["POST /cart/checkout"],
+      "layers": ["base-python-utils"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}",
+        "CART_DELETE_FUNCTION_NAME": "${CartDeleteFunction}"
+      }
+    },
+    {
+      "name": "cart-total",
+      "trigger_type": "api",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/app.py", "shopping-cart/models.py", "shopping-cart/db.py"],
+      "entry_points": ["GET /cart/{product_id}/total"],
+      "layers": ["base-python-utils"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    },
+    {
+      "name": "cart-delete-items",
+      "trigger_type": "internal",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/models.py", "shopping-cart/db.py"],
+      "internal_path": "POST /internal/cart/delete-items",
+      "called_by": ["cart-checkout", "cart-migrate"],
+      "layers": ["base-python-utils"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    },
+    {
+      "name": "product-aggregate-update",
+      "trigger_type": "internal",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/models.py", "shopping-cart/db.py"],
+      "internal_path": "POST /internal/product/aggregate-update",
+      "called_by": ["cart-add", "cart-update"],
+      "layers": ["base-python-utils"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    },
+    {
+      "name": "cart-cleanup-expired",
+      "trigger_type": "internal",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/models.py", "shopping-cart/db.py"],
+      "internal_path": "POST /internal/cart/cleanup-expired",
+      "called_by": [],
+      "layers": ["base-python-utils"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    },
+    {
+      "name": "cognito-post-confirmation",
+      "trigger_type": "cognito",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["shopping-cart/models.py", "shopping-cart/db.py"],
+      "called_by": [],
+      "layers": ["base-python-utils"],
+      "environment_variables": {
+        "DYNAMODB_TABLE_NAME": "${ShoppingCartTable}"
+      }
+    }
+  ],
+  "dynamodb_tables": [
+    {
+      "logical_name": "ShoppingCartTable",
+      "purpose": "Single-table design for shopping cart application storing users, products, and cart items",
+      "schema_source_files": ["shopping-cart/init_dynamodb.py", "shopping-cart/models.py"]
+    }
+  ],
+  "s3_buckets": [],
+  "cognito": {
+    "enabled": true,
+    "user_pool_attributes": ["email", "name"],
+    "password_policy": {
+      "min_length": 8,
+      "require_symbols": true,
+      "require_numbers": true,
+      "require_uppercase": true,
+      "require_lowercase": true
+    },
+    "triggers": {
+      "post_confirmation": {
+        "enabled": true,
+        "purpose": "Create user profile record in DynamoDB after successful registration"
+      }
+    }
+  },
+  "api_gateway": {
+    "type": "REST",
+    "cors": {
+      "allow_origins": ["*"],
+      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "allow_headers": ["Content-Type", "Authorization"],
+      "max_age": 3600
+    },
+    "authorizer": "Cognito"
+  },
+  "table_initialization": [
+    {
+      "table": "ShoppingCartTable",
+      "source_file": "shopping-cart/init_dynamodb.py",
+      "strategy": "Custom Resource Lambda during CloudFormation deployment"
+    }
+  ],
+  "dropped_functions": [
+    {
+      "item": "POST /auth/register",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito User Pool - Frontend calls AWS Amplify Auth.signUp()",
+      "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signUp({username, password, attributes: {email}})"
+    },
+    {
+      "item": "POST /auth/login",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito User Pool - Frontend calls AWS Amplify Auth.signIn()",
+      "frontend_integration": "import { Auth } from 'aws-amplify'; await Auth.signIn(username, password)"
+    },
+    {
+      "item": "verifyToken middleware / auth decorators",
+      "type": "code",
+      "reason": "Replaced by API Gateway Cognito Authorizer - Token validation at gateway layer, not in Lambda code"
+    },
+    {
+      "item": "hash_password, verify_password functions",
+      "type": "code",
+      "reason": "Replaced by Cognito User Pool - Password management handled by AWS Cognito"
+    },
+    {
+      "item": "create_token function",
+      "type": "code",
+      "reason": "Replaced by Cognito User Pool - JWT token generation handled by AWS Cognito"
+    },
+    {
+      "item": "login_required decorator",
+      "type": "code",
+      "reason": "Replaced by API Gateway Cognito Authorizer - Authentication handled at gateway layer"
+    },
+    {
+      "item": "init_dynamodb.py",
+      "type": "script",
+      "reason": "Infrastructure script - Table creation handled by SAM template CloudFormation resources"
+    },
+    {
+      "item": "Users table credentials (password_hash field)",
+      "type": "table_field",
+      "reason": "User authentication moved to Cognito User Pool - Password storage handled by AWS Cognito"
+    },
+    {
+      "item": "get_cart_id_from_cookie, set_cart_cookie functions",
+      "type": "code",
+      "reason": "Session management replaced by Cognito JWT tokens - Frontend stores token in localStorage/HttpOnly cookies"
+    },
+    {
+      "item": "get_user_identifier function",
+      "type": "code",
+      "reason": "Replaced by API Gateway Cognito Authorizer - User identity extracted from JWT claims at gateway layer"
+    }
+  ]
+}

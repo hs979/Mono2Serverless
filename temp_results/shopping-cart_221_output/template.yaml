@@ -1,0 +1,412 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Shopping Cart Serverless Application
+
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+    Tracing: Active
+  Api:
+    Cors:
+      AllowOrigin: "'*'"
+      AllowHeaders: "'Content-Type,Authorization,X-Cart-Id,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      MaxAge: "'86400'"
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+
+Resources:
+  # ========== Lambda Layer ==========
+  BasePythonUtilsLayer:
+    Type: AWS::Serverless::LayerVersion
+    Metadata:
+      BuildMethod: python3.11
+    Properties:
+      LayerName: !Sub ${Environment}-base-python-utils
+      Description: Shared Python utilities and boto3
+      ContentUri: layers/base-python-utils/
+      CompatibleRuntimes:
+        - python3.11
+        - python3.12
+      RetentionPolicy: Retain
+
+  # ========== DynamoDB Table ==========
+  ShoppingCartTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-shopping-cart
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: userId-index
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: email-index
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      TimeToLiveSpecification:
+        AttributeName: expirationTime
+        Enabled: true
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  # ========== S3 Bucket ==========
+  FileStorageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Environment}-shopping-cart-files-${AWS::AccountId}
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins: ["*"]
+            AllowedMethods: [GET, PUT, POST, DELETE, HEAD]
+            AllowedHeaders: ["*"]
+            MaxAge: 3000
+      LifecycleConfiguration:
+        Rules:
+          - Id: CleanupTemporaryUploads
+            Status: Enabled
+            ExpirationInDays: 1
+            Prefix: temp/
+          - Id: CleanupOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+      VersioningConfiguration:
+        Status: Enabled
+
+  # ========== Cognito User Pool ==========
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${Environment}-shopping-cart-users
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: name
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+      EmailConfiguration:
+        EmailSendingAccount: COGNITO_DEFAULT
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub ${Environment}-shopping-cart-web
+      UserPoolId: !Ref UserPool
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      GenerateSecret: false
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs:
+        - http://localhost:3000
+        - https://example.com
+      LogoutURLs:
+        - http://localhost:3000
+        - https://example.com
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+
+  # ========== API Gateway ==========
+  ShoppingCartApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn
+      # Cors inherited from Globals
+
+  # ========== Lambda Functions ==========
+  ProductsGetAllFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/products/get-all/
+      Handler: handler.lambda_handler
+      Description: Get all products
+      Layers:
+        - !Ref BasePythonUtilsLayer
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref ShoppingCartTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ShoppingCartTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ShoppingCartApi
+            Path: /product
+            Method: GET
+            Auth:
+              Authorizer: NONE  # Public endpoint
+
+  ProductsGetByIdFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/products/get-by-id/
+      Handler: handler.lambda_handler
+      Description: Get product by ID
+      Layers:
+        - !Ref BasePythonUtilsLayer
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref ShoppingCartTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ShoppingCartTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ShoppingCartApi
+            Path: /product/{product_id}
+            Method: GET
+            Auth:
+              Authorizer: NONE  # Public endpoint
+
+  CartGetItemsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/cart/get-items/
+      Handler: handler.lambda_handler
+      Description: Get cart items
+      Layers:
+        - !Ref BasePythonUtilsLayer
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref ShoppingCartTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ShoppingCartTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ShoppingCartApi
+            Path: /cart
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  CartAddItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/cart/add-item/
+      Handler: handler.lambda_handler
+      Description: Add item to cart
+      Layers:
+        - !Ref BasePythonUtilsLayer
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref ShoppingCartTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ShoppingCartTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ShoppingCartApi
+            Path: /cart
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  CartUpdateItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/cart/update-item/
+      Handler: handler.lambda_handler
+      Description: Update cart item
+      Layers:
+        - !Ref BasePythonUtilsLayer
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref ShoppingCartTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ShoppingCartTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ShoppingCartApi
+            Path: /cart/{product_id}
+            Method: PUT
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  CartMigrateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/cart/migrate/
+      Handler: handler.lambda_handler
+      Description: Migrate anonymous cart to user cart
+      Layers:
+        - !Ref BasePythonUtilsLayer
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref ShoppingCartTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ShoppingCartTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ShoppingCartApi
+            Path: /cart/migrate
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  CartCheckoutFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/cart/checkout/
+      Handler: handler.lambda_handler
+      Description: Checkout cart
+      Layers:
+        - !Ref BasePythonUtilsLayer
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref ShoppingCartTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ShoppingCartTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ShoppingCartApi
+            Path: /cart/checkout
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  CartGetTotalFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/cart/get-total/
+      Handler: handler.lambda_handler
+      Description: Get cart total
+      Layers:
+        - !Ref BasePythonUtilsLayer
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref ShoppingCartTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ShoppingCartTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ShoppingCartApi
+            Path: /cart/{product_id}/total
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  CognitoPostConfirmationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/cognito/post-confirmation/
+      Handler: handler.lambda_handler
+      Description: Create user profile after Cognito registration
+      Layers:
+        - !Ref BasePythonUtilsLayer
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref ShoppingCartTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ShoppingCartTable
+      Events:
+        CognitoEvent:
+          Type: Cognito
+          Properties:
+            UserPool: !Ref UserPool
+            Trigger: PostConfirmation
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${ShoppingCartApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+    Export:
+      Name: !Sub ${AWS::StackName}-ApiUrl
+
+  ShoppingCartTableName:
+    Description: DynamoDB table name
+    Value: !Ref ShoppingCartTable
+    Export:
+      Name: !Sub ${AWS::StackName}-ShoppingCartTableName
+
+  FileStorageBucketName:
+    Description: S3 bucket name for file storage
+    Value: !Ref FileStorageBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-FileStorageBucketName
+
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub ${AWS::StackName}-UserPoolId
+
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref UserPoolClient
+    Export:
+      Name: !Sub ${AWS::StackName}-UserPoolClientId

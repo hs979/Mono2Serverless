@@ -1,0 +1,12 @@
+{
+  "name": "search-sync-delete",
+  "version": "1.0.0",
+  "description": "Internal Lambda function for deleting books from Elasticsearch",
+  "dependencies": {
+    "@elastic/elasticsearch": "^7.17.0",
+    "@acuris/aws-es-connection": "^1.0.2"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

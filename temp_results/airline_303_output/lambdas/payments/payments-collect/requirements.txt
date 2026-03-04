@@ -1,0 +1,3 @@
+# Dependencies for payments-collect Lambda
+# stripe is provided via shared layer
+# shared_utils is provided via layer

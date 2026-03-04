@@ -1,0 +1,326 @@
+{
+  "metadata": {
+    "application_name": "airline-booking",
+    "architecture_pattern": "Basic Serverless Architecture",
+    "has_authentication": true,
+    "has_database": true,
+    "has_file_storage": false
+  },
+  "lambda_functions": [
+    {
+      "name": "flights-search",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["airline-booking/app.py", "airline-booking/services/catalog.py", "airline-booking/data/storage.py"],
+      "entry_points": ["GET /flights/search"],
+      "environment_variables": {
+        "FLIGHT_TABLE": "${FlightTable}"
+      }
+    },
+    {
+      "name": "flights-get",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["airline-booking/app.py", "airline-booking/services/catalog.py", "airline-booking/data/storage.py"],
+      "entry_points": ["GET /flights/{flight_id}"],
+      "environment_variables": {
+        "FLIGHT_TABLE": "${FlightTable}"
+      }
+    },
+    {
+      "name": "flights-reserve-seat",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["airline-booking/app.py", "airline-booking/services/catalog.py", "airline-booking/data/storage.py"],
+      "entry_points": ["POST /flights/{flight_id}/reserve"],
+      "environment_variables": {
+        "FLIGHT_TABLE": "${FlightTable}"
+      }
+    },
+    {
+      "name": "flights-release-seat",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["airline-booking/app.py", "airline-booking/services/catalog.py", "airline-booking/data/storage.py"],
+      "entry_points": ["POST /flights/{flight_id}/release"],
+      "environment_variables": {
+        "FLIGHT_TABLE": "${FlightTable}"
+      }
+    },
+    {
+      "name": "bookings-create",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["airline-booking/app.py", "airline-booking/services/booking.py", "airline-booking/services/catalog.py", "airline-booking/services/payment.py", "airline-booking/services/loyalty.py", "airline-booking/data/storage.py"],
+      "entry_points": ["POST /bookings"],
+      "environment_variables": {
+        "FLIGHT_TABLE": "${FlightTable}",
+        "BOOKING_TABLE": "${BookingTable}",
+        "LOYALTY_TABLE": "${LoyaltyTable}",
+        "FLIGHTS_RESERVE_SEAT_FUNCTION_NAME": "${FlightsReserveSeatFunction}",
+        "BOOKINGS_RESERVE_FUNCTION_NAME": "${BookingsReserveFunction}",
+        "PAYMENTS_COLLECT_FUNCTION_NAME": "${PaymentsCollectFunction}",
+        "BOOKINGS_CONFIRM_FUNCTION_NAME": "${BookingsConfirmFunction}",
+        "LOYALTY_ADD_POINTS_FUNCTION_NAME": "${LoyaltyAddPointsFunction}",
+        "BOOKINGS_NOTIFY_FUNCTION_NAME": "${BookingsNotifyFunction}"
+      }
+    },
+    {
+      "name": "bookings-get",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["airline-booking/app.py", "airline-booking/services/booking.py", "airline-booking/data/storage.py"],
+      "entry_points": ["GET /bookings/{booking_id}"],
+      "environment_variables": {
+        "BOOKING_TABLE": "${BookingTable}"
+      }
+    },
+    {
+      "name": "bookings-confirm",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["airline-booking/app.py", "airline-booking/services/booking.py", "airline-booking/data/storage.py"],
+      "entry_points": ["POST /bookings/{booking_id}/confirm"],
+      "environment_variables": {
+        "BOOKING_TABLE": "${BookingTable}"
+      }
+    },
+    {
+      "name": "bookings-cancel",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["airline-booking/app.py", "airline-booking/services/booking.py", "airline-booking/services/catalog.py", "airline-booking/services/payment.py", "airline-booking/data/storage.py"],
+      "entry_points": ["POST /bookings/{booking_id}/cancel"],
+      "environment_variables": {
+        "BOOKING_TABLE": "${BookingTable}",
+        "FLIGHT_TABLE": "${FlightTable}",
+        "FLIGHTS_RELEASE_SEAT_FUNCTION_NAME": "${FlightsReleaseSeatFunction}",
+        "PAYMENTS_REFUND_FUNCTION_NAME": "${PaymentsRefundFunction}",
+        "BOOKINGS_NOTIFY_FUNCTION_NAME": "${BookingsNotifyFunction}"
+      }
+    },
+    {
+      "name": "customers-bookings-get",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["airline-booking/app.py", "airline-booking/services/booking.py", "airline-booking/data/storage.py"],
+      "entry_points": ["GET /customers/{customer_id}/bookings"],
+      "environment_variables": {
+        "BOOKING_TABLE": "${BookingTable}"
+      }
+    },
+    {
+      "name": "payments-collect",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["airline-booking/app.py", "airline-booking/services/payment.py"],
+      "entry_points": ["POST /payments/collect"],
+      "environment_variables": {
+        "STRIPE_SECRET_KEY": "${StripeSecretKey}"
+      }
+    },
+    {
+      "name": "payments-refund",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["airline-booking/app.py", "airline-booking/services/payment.py"],
+      "entry_points": ["POST /payments/refund"],
+      "environment_variables": {
+        "STRIPE_SECRET_KEY": "${StripeSecretKey}"
+      }
+    },
+    {
+      "name": "payments-get",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["airline-booking/app.py", "airline-booking/services/payment.py"],
+      "entry_points": ["GET /payments/{charge_id}"],
+      "environment_variables": {
+        "STRIPE_SECRET_KEY": "${StripeSecretKey}"
+      }
+    },
+    {
+      "name": "loyalty-get",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["airline-booking/app.py", "airline-booking/services/loyalty.py", "airline-booking/data/storage.py"],
+      "entry_points": ["GET /loyalty/{customer_id}"],
+      "environment_variables": {
+        "LOYALTY_TABLE": "${LoyaltyTable}"
+      }
+    },
+    {
+      "name": "loyalty-add-points",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "source_files": ["airline-booking/app.py", "airline-booking/services/loyalty.py", "airline-booking/data/storage.py"],
+      "entry_points": ["POST /loyalty/{customer_id}/points"],
+      "environment_variables": {
+        "LOYALTY_TABLE": "${LoyaltyTable}"
+      }
+    }
+  ],
+  "dynamodb_tables": [
+    {
+      "logical_name": "Flight",
+      "purpose": "Store flight information and seat availability",
+      "partition_key": {
+        "name": "id",
+        "type": "S"
+      }
+    },
+    {
+      "logical_name": "Booking",
+      "purpose": "Store booking records and status",
+      "partition_key": {
+        "name": "id",
+        "type": "S"
+      },
+      "gsi": [
+        {
+          "index_name": "customer-index",
+          "partition_key": {
+            "name": "customer",
+            "type": "S"
+          }
+        }
+      ]
+    },
+    {
+      "logical_name": "Loyalty",
+      "purpose": "Store customer loyalty points and tier information",
+      "partition_key": {
+        "name": "id",
+        "type": "S"
+      },
+      "gsi": [
+        {
+          "index_name": "customer-flag-index",
+          "partition_key": {
+            "name": "customerId",
+            "type": "S"
+          },
+          "sort_key": {
+            "name": "flag",
+            "type": "S"
+          }
+        }
+      ]
+    }
+  ],
+  "s3_buckets": [],
+  "cognito": {
+    "enabled": true,
+    "user_pool_attributes": ["email", "name"],
+    "password_policy": {
+      "min_length": 8,
+      "require_symbols": true,
+      "require_numbers": true,
+      "require_uppercase": true,
+      "require_lowercase": true
+    }
+  },
+  "api_gateway": {
+    "type": "REST",
+    "cors": {
+      "allow_origins": ["*"],
+      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    },
+    "authorizer": "Cognito"
+  },
+  "lambda_invoke_permissions": [
+    {
+      "invoker": "bookings-create",
+      "target": "flights-reserve-seat"
+    },
+    {
+      "invoker": "bookings-create",
+      "target": "bookings-reserve"
+    },
+    {
+      "invoker": "bookings-create",
+      "target": "payments-collect"
+    },
+    {
+      "invoker": "bookings-create",
+      "target": "bookings-confirm"
+    },
+    {
+      "invoker": "bookings-create",
+      "target": "loyalty-add-points"
+    },
+    {
+      "invoker": "bookings-create",
+      "target": "bookings-notify"
+    },
+    {
+      "invoker": "bookings-cancel",
+      "target": "flights-release-seat"
+    },
+    {
+      "invoker": "bookings-cancel",
+      "target": "payments-refund"
+    },
+    {
+      "invoker": "bookings-cancel",
+      "target": "bookings-notify"
+    }
+  ],
+  "dropped_functions": [
+    {
+      "item": "POST /auth/register",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito User Pool registration - frontend calls AWS Amplify/Cognito SDK directly"
+    },
+    {
+      "item": "POST /auth/login",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito User Pool authentication - frontend calls AWS Amplify/Cognito SDK directly"
+    },
+    {
+      "item": "GET /auth/me",
+      "type": "endpoint",
+      "reason": "Replaced by Cognito - client reads user info directly from JWT token via event.requestContext.authorizer.claims"
+    },
+    {
+      "item": "GET /auth/users",
+      "type": "endpoint",
+      "reason": "Admin user management handled by Cognito User Pool admin APIs, not application code"
+    },
+    {
+      "item": "login_required middleware/decorator",
+      "type": "code",
+      "reason": "Replaced by API Gateway Cognito Authorizer - token validation at gateway layer"
+    },
+    {
+      "item": "admin_required middleware/decorator",
+      "type": "code",
+      "reason": "Replaced by Cognito Groups and API Gateway Cognito Authorizer with group-based authorization"
+    },
+    {
+      "item": "owner_or_admin_required middleware/decorator",
+      "type": "code",
+      "reason": "Authorization logic moved to Lambda functions using Cognito Sub from event.requestContext"
+    },
+    {
+      "item": "booking_owner_or_admin_required middleware/decorator",
+      "type": "code",
+      "reason": "Authorization logic moved to Lambda functions using Cognito Sub from event.requestContext"
+    },
+    {
+      "item": "init_dynamodb_tables.py",
+      "type": "script",
+      "reason": "Infrastructure script - table creation handled by SAM template CloudFormation resources"
+    },
+    {
+      "item": "fix_admin_user.py",
+      "type": "script",
+      "reason": "Infrastructure script - user management handled by Cognito User Pool"
+    },
+    {
+      "item": "Users table (Airline-Users-{stage})",
+      "type": "table",
+      "reason": "User authentication moved to Cognito User Pool - entire users table deleted, credentials managed by AWS"
+    }
+  ]
+}

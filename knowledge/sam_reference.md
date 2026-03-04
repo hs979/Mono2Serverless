@@ -155,6 +155,19 @@ MyApi:
     # X-Ray Tracing (Recommended)
     TracingEnabled: true
 
+### CORS Configuration Best Practice
+⚠️ **IMPORTANT**: Define CORS properties as simple strings.
+❌ **DO NOT** use `!Sub` with a list or object structure for the Cors property.
+❌ **DO NOT** try to parameterize lists of headers inside the Cors object.
+
+✅ **Correct**:
+```yaml
+Cors:
+  AllowOrigin: "'*'"
+  AllowHeaders: "'Content-Type,Authorization'"
+  AllowMethods: "'GET,POST,OPTIONS'"
+```
+
 # API Log Group
 ApiLogGroup:
   Type: AWS::Logs::LogGroup
@@ -177,6 +190,8 @@ ApiLogGroup:
     TableName: !Sub ${Environment}-{table-name}
     
     # Key Definitions (Required)
+    # ⚠️ CRITICAL: List EVERY attribute used in KeySchema OR any GSI KeySchema here.
+    # Attributes NOT used as keys (e.g., name, email, status) must NOT be listed here.
     AttributeDefinitions:
       - AttributeName: userId
         AttributeType: S
@@ -192,15 +207,46 @@ ApiLogGroup:
     # Billing Mode (Pay-per-request recommended)
     BillingMode: PAY_PER_REQUEST
     
-    # Server-side Encryption (Recommended)
-    SSESpecification:
-      SSEEnabled: true
-    
-    # Point-in-time Recovery (Recommended for production)
-    PointInTimeRecoverySpecification:
-      PointInTimeRecoveryEnabled: true
-    
     # Tags
+    Tags:
+      - Key: Environment
+        Value: !Ref Environment
+```
+
+### DynamoDB Table Pattern — With GSI (Global Secondary Index)
+
+```yaml
+# ⚠️ GSI Rules:
+# 1. Every attribute used in any GSI KeySchema MUST be declared in the top-level AttributeDefinitions.
+# 2. GSIs do not require a RANGE key — a HASH-only GSI is valid.
+# 3. Do NOT declare non-key attributes (e.g., title, status) in AttributeDefinitions.
+
+{TableName}:
+  Type: AWS::DynamoDB::Table
+  DeletionPolicy: Retain
+  UpdateReplacePolicy: Retain
+  Properties:
+    TableName: !Sub ${Environment}-{table-name}
+    AttributeDefinitions:
+      - AttributeName: pk          # Table partition key
+        AttributeType: S
+      - AttributeName: sk          # Table sort key
+        AttributeType: S
+      - AttributeName: userId      # GSI partition key — MUST be listed here
+        AttributeType: S
+    KeySchema:
+      - AttributeName: pk
+        KeyType: HASH
+      - AttributeName: sk
+        KeyType: RANGE
+    GlobalSecondaryIndexes:
+      - IndexName: userId-index
+        KeySchema:
+          - AttributeName: userId  # Must match an entry in AttributeDefinitions above
+            KeyType: HASH
+        Projection:
+          ProjectionType: ALL      # ALL | KEYS_ONLY | INCLUDE
+    BillingMode: PAY_PER_REQUEST
     Tags:
       - Key: Environment
         Value: !Ref Environment
@@ -350,6 +396,23 @@ UserPoolClient:
       - ALLOW_USER_PASSWORD_AUTH
       - ALLOW_REFRESH_TOKEN_AUTH
 ```
+
+⚠️ **UserPoolClient: DO NOT add OAuth settings unless a Hosted UI domain is also provisioned**
+
+The following properties require `AWS::Cognito::UserPoolDomain` to exist first.
+Without the domain resource, CloudFormation `EarlyValidation::ResourceExistenceCheck` will **fail the deployment immediately**.
+
+```yaml
+# ❌ DO NOT add these unless you also create AWS::Cognito::UserPoolDomain:
+# AllowedOAuthFlows: [code]
+# AllowedOAuthFlowsUserPoolClient: true
+# AllowedOAuthScopes: [email, openid, profile]
+# CallbackURLs: [...]
+# LogoutURLs: [...]
+# SupportedIdentityProviders: [COGNITO]
+```
+
+For standard API authentication (Amplify Auth.signIn → API Gateway Cognito Authorizer), the minimal `ExplicitAuthFlows` config above is sufficient. No OAuth or Hosted UI is required.
 
 ### Cognito Triggers (Avoid Circular Dependencies)
 

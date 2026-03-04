@@ -1,0 +1,12 @@
+{
+  "name": "base-node-utils",
+  "version": "1.0.0",
+  "description": "Common AWS SDK and utilities used by most Lambdas",
+  "dependencies": {
+    "aws-sdk": "^2.1490.0",
+    "uuid": "^9.0.1"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

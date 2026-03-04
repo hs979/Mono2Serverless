@@ -1,0 +1,9 @@
+{
+  "name": "books-get-all",
+  "version": "1.0.0",
+  "description": "Lambda function for GET /books",
+  "dependencies": {},
+  "engines": {
+    "node": "18.x"
+  }
+}
