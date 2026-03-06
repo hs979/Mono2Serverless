@@ -69,9 +69,51 @@ tasks:
       - Record every invoker->target pair in blueprint lambda_invoke_permissions
       - The invoker Lambda MUST have LambdaInvokePolicy in SAM template pointing to the target
       
+      ============================================================
+      CALL GRAPH DATA (from static analysis — NEW)
+      ============================================================
+      
+      analysis_report.json now includes TWO pre-computed call graph fields
+      extracted mechanically (AST for Python, regex for JS), NOT LLM-inferred:
+      
+      1. "call_graph": Raw cross-file function call edges.
+         Each edge: {caller_file, caller_function, caller_line,
+                     callee_module, callee_symbol}
+      
+      2. "entry_point_dependencies": Aggregated view per HTTP entry_point.
+         For each entry_point, lists ALL cross-file functions it calls.
+         This is your PRIMARY source for identifying Lambda-to-Lambda calls.
+      
+      HOW TO USE entry_point_dependencies for lambda_invoke_permissions:
+      - If entry_point A's handler calls functions from modules that serve
+        OTHER entry_points, those cross-module calls become Lambda-to-Lambda
+        invocations in serverless.
+      - Example: POST /bookings calls CatalogService.reserve_flight_seat
+        (from services.catalog). POST /flights/{id}/reserve also calls
+        CatalogService.reserve_flight_seat (same module).
+        → In serverless: bookings-create Lambda invokes flights-reserve-seat.
+      - If an entry_point only calls functions from its OWN module or
+        utility helpers (db clients, validators), it is a simple "Worker"
+        Lambda with NO cross-Lambda invocations.
+      - If an entry_point calls functions across MULTIPLE service modules,
+        it is likely an "Orchestrator" Lambda that invokes other Lambdas.
+      
+      IMPORTANT: You do NOT need to use ReadFileTool to read source files
+      for understanding call relationships. The call_graph data provides
+      this mechanically. You SHOULD still use ReadFileTool ONLY for:
+      - DynamoDB schema files (listed in dynamodb_info.schema_files)
+      
+      HOW TO DERIVE source_files for each Lambda:
+      From entry_point_dependencies, collect the handler file plus all
+      callee_module file paths. This gives Code Developer the exact file
+      list to read, without further exploration.
+      
       Identification Step (do this during blueprint design):
-      Identify ALL cross-Lambda call relationships in the monolith and document each
-      invoker->target pair in blueprint lambda_invoke_permissions. Set to [] if none.
+      Use the "entry_point_dependencies" field from analysis_report.json to
+      identify ALL cross-Lambda call relationships. For each entry_point that
+      calls functions belonging to OTHER entry_points' service domains, create
+      an invoker->target pair in lambda_invoke_permissions.
+      Set lambda_invoke_permissions to [] if no entry_point has cross-domain calls.
       
       ============================================================
       RULE 1: "DELETE, DON'T MIGRATE" - Auth Endpoints
@@ -198,6 +240,10 @@ tasks:
          Note (STRICT): ONE API endpoint (method+path) = ONE Lambda.
                - Do NOT group multiple endpoints into one Lambda (no internal routing).
                - You MAY organize folders/names by domain (inferred from monolith structure), but handlers stay split.
+         CRITICAL: Derive source_files from entry_point_dependencies:
+               - Start with the entry_point's handler file
+               - Add files corresponding to callee_modules in its cross_file_calls
+               - This ensures Code Developer gets the complete, precise file list
          [
            {
              "name": "items-get-item",

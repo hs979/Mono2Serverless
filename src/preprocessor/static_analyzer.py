@@ -3,7 +3,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import ast
 
@@ -225,6 +225,7 @@ def analyze_python_file(root: Path, file_path: Path, app_name: str = None) -> Di
                                     "file": rel_path,
                                     "method": http_method,
                                     "path": path,
+                                    "handler_function": func.name,
                                 }
                             )
                     elif attr in PY_ENTRY_METHOD_DECORATORS:
@@ -240,6 +241,7 @@ def analyze_python_file(root: Path, file_path: Path, app_name: str = None) -> Di
                                     "file": rel_path,
                                     "method": attr.upper(),
                                     "path": path,
+                                    "handler_function": func.name,
                                 }
                             )
 
@@ -277,6 +279,104 @@ def analyze_python_file(root: Path, file_path: Path, app_name: str = None) -> Di
         "entry_points": entry_points,
         "symbols": symbol_table,
     }
+
+
+# ============================================================
+# Cross-file Call Graph Analysis
+# ============================================================
+
+def extract_python_call_graph(
+    root: Path, file_path: Path, source: str, app_name: str = None
+) -> List[Dict[str, Any]]:
+    """
+    Extract cross-file function call edges from a Python file via AST.
+
+    Strategy:
+      1. Build import map: local_name -> module_path (from import / from-import)
+      2. Filter to project-local modules (file exists on disk)
+      3. Walk each FunctionDef body and record ast.Call nodes that reference
+         an imported local name (obj.method() or func())
+
+    Returns list of edges, each:
+      { caller_file, caller_function, caller_line, callee_module, callee_symbol }
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+
+    rel_path = str(file_path.relative_to(root).as_posix())
+    if app_name:
+        rel_path = f"{app_name}/{rel_path}"
+
+    # Pass 1 — import map
+    import_map: Dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                import_map[alias.asname or alias.name] = node.module
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                import_map[alias.asname or alias.name] = alias.name
+
+    # Keep only project-local modules (resolvable to a file on disk)
+    local_import_map: Dict[str, str] = {}
+    for local_name, mod_path in import_map.items():
+        rel_parts = mod_path.replace(".", os.sep)
+        candidates = [
+            root / (rel_parts + ".py"),
+            root / rel_parts / "__init__.py",
+        ]
+        if any(c.exists() for c in candidates):
+            local_import_map[local_name] = mod_path
+
+    if not local_import_map:
+        return []
+
+    # Pass 2 — walk functions, collect cross-file call edges
+    edges: List[Dict[str, Any]] = []
+    seen: Set[Tuple[str, str, str]] = set()
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        caller_func = node.name
+
+        for child in ast.walk(node):
+            if not isinstance(child, ast.Call):
+                continue
+
+            callee_module: Optional[str] = None
+            callee_symbol: Optional[str] = None
+
+            # obj.method()  e.g. CatalogService.reserve_flight_seat()
+            if (isinstance(child.func, ast.Attribute)
+                    and isinstance(child.func.value, ast.Name)):
+                obj = child.func.value.id
+                if obj in local_import_map:
+                    callee_module = local_import_map[obj]
+                    callee_symbol = f"{obj}.{child.func.attr}"
+
+            # func()  e.g. some_imported_function()
+            elif isinstance(child.func, ast.Name):
+                name = child.func.id
+                if name in local_import_map:
+                    callee_module = local_import_map[name]
+                    callee_symbol = name
+
+            if callee_module and callee_symbol:
+                key = (caller_func, callee_module, callee_symbol)
+                if key not in seen:
+                    seen.add(key)
+                    edges.append({
+                        "caller_file": rel_path,
+                        "caller_function": caller_func,
+                        "caller_line": getattr(child, "lineno", node.lineno),
+                        "callee_module": callee_module,
+                        "callee_symbol": callee_symbol,
+                    })
+
+    return edges
 
 
 def _find_function_end_js(lines: List[str], start_idx: int) -> int:
@@ -361,11 +461,13 @@ def analyze_js_like_file(root: Path, file_path: Path, app_name: str = None) -> D
     for m in route_pattern.finditer(source):
         method = m.group(2).upper()
         path = m.group(3)
+        handler_name = f"{method}_{path.replace('/', '_').replace(':', '_')}"
         entry_points.append(
             {
                 "file": rel_path,
                 "method": method,
                 "path": path,
+                "handler_function": handler_name,
             }
         )
 
@@ -458,6 +560,135 @@ def analyze_js_like_file(root: Path, file_path: Path, app_name: str = None) -> D
         "entry_points": entry_points,
         "symbols": symbol_table,
     }
+
+
+def _find_enclosing_js_function(
+    file_symbols: List[Dict[str, Any]], line_no: int
+) -> str:
+    """Find the tightest enclosing function for *line_no* using symbol table ranges."""
+    best_name: Optional[str] = None
+    best_span = float("inf")
+
+    for sym in file_symbols:
+        start = sym.get("start_line", 0)
+        end = sym.get("end_line", 0)
+        if start <= line_no <= end:
+            span = end - start
+            if span < best_span:
+                best_span = span
+                best_name = sym["id"].rsplit(".", 1)[-1]
+
+    return best_name or "(module-level)"
+
+
+def extract_js_call_graph(
+    root: Path,
+    file_path: Path,
+    source: str,
+    file_symbols: List[Dict[str, Any]],
+    app_name: str = None,
+) -> List[Dict[str, Any]]:
+    """
+    Extract cross-file function call edges from a JS/TS file via regex.
+
+    Only tracks calls to locally-imported modules (relative paths starting with '.').
+    Uses *file_symbols* (the symbol table entries for this file) to attribute each
+    call to its enclosing function / route handler.
+
+    Returns list of edges with the same schema as the Python variant.
+    """
+    rel_path = str(file_path.relative_to(root).as_posix())
+    if app_name:
+        rel_path = f"{app_name}/{rel_path}"
+
+    # ---- Build import map (relative paths only → local modules) ----
+    import_map: Dict[str, str] = {}
+
+    # const { a, b } = require('./module')
+    for m in re.finditer(
+        r"(?:const|let|var)\s*\{([^}]+)\}\s*=\s*require\(\s*['\"](\.[^'\"]+)['\"]\s*\)",
+        source,
+    ):
+        names = [
+            n.strip().split(":")[-1].strip().split(" ")[-1].strip()
+            for n in m.group(1).split(",")
+        ]
+        module = m.group(2)
+        for name in names:
+            if name and re.match(r"^[A-Za-z_$]", name):
+                import_map[name] = module
+
+    # const name = require('./module')
+    for m in re.finditer(
+        r"(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*require\(\s*['\"](\.[^'\"]+)['\"]\s*\)",
+        source,
+    ):
+        import_map.setdefault(m.group(1), m.group(2))
+
+    # import { a, b } from './module'
+    for m in re.finditer(
+        r"import\s*\{([^}]+)\}\s*from\s*['\"](\.[^'\"]+)['\"]", source
+    ):
+        names = [n.strip().split(" as ")[-1].strip() for n in m.group(1).split(",")]
+        module = m.group(2)
+        for name in names:
+            if name and re.match(r"^[A-Za-z_$]", name):
+                import_map.setdefault(name, module)
+
+    # import name from './module'
+    for m in re.finditer(
+        r"import\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s*['\"](\.[^'\"]+)['\"]",
+        source,
+    ):
+        import_map.setdefault(m.group(1), m.group(2))
+
+    if not import_map:
+        return []
+
+    # ---- Scan source for calls to imported local names ----
+    lines = source.splitlines()
+    edges: List[Dict[str, Any]] = []
+    seen: Set[Tuple[str, str, str]] = set()
+
+    for local_name, module_path in import_map.items():
+        escaped = re.escape(local_name)
+
+        # name.method(...)
+        method_re = re.compile(rf"\b{escaped}\.([A-Za-z_$][A-Za-z0-9_$]*)\s*\(")
+        # name(...)  — negative lookbehind avoids double-counting obj.name()
+        direct_re = re.compile(rf"(?<![.\w]){escaped}\s*\(")
+
+        for line_idx, line in enumerate(lines):
+            line_no = line_idx + 1
+
+            for m in method_re.finditer(line):
+                callee = f"{local_name}.{m.group(1)}"
+                caller = _find_enclosing_js_function(file_symbols, line_no)
+                key = (caller, module_path, callee)
+                if key not in seen:
+                    seen.add(key)
+                    edges.append({
+                        "caller_file": rel_path,
+                        "caller_function": caller,
+                        "caller_line": line_no,
+                        "callee_module": module_path,
+                        "callee_symbol": callee,
+                    })
+
+            for m in direct_re.finditer(line):
+                caller = _find_enclosing_js_function(file_symbols, line_no)
+                key = (caller, module_path, local_name)
+                if key not in seen:
+                    seen.add(key)
+                    edges.append({
+                        "caller_file": rel_path,
+                        "caller_function": caller,
+                        "caller_line": line_no,
+                        "callee_module": module_path,
+                        "callee_symbol": local_name,
+                    })
+
+    return edges
 
 
 def analyze_project_config(monolith_root: Path) -> Dict[str, Any]:
@@ -675,39 +906,108 @@ def extract_dynamodb_info(monolith_root: Path, file_tags: Dict[str, List[str]]) 
 
 
 
+def build_entry_point_call_map(
+    entry_points: List[Dict[str, Any]],
+    call_edges: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Aggregate raw call-graph edges per HTTP entry_point.
+
+    For each entry_point that has a ``handler_function`` field, collects every
+    cross-file call edge whose (caller_file, caller_function) matches, producing
+    a compact dependency map that Architect can consume directly.
+
+    Returns:
+        [
+          {
+            "entry_point": {"method": "POST", "path": "/bookings", "file": "..."},
+            "handler_function": "create_booking",
+            "cross_file_calls": [
+              {"callee_module": "services.catalog",
+               "callee_symbol": "CatalogService.reserve_flight_seat"},
+              ...
+            ]
+          }
+        ]
+    """
+    if not call_edges:
+        return []
+
+    # Index edges by (caller_file, caller_function) for O(1) lookup
+    edges_index: Dict[Tuple[str, str], List[Dict]] = {}
+    for edge in call_edges:
+        key = (edge["caller_file"], edge["caller_function"])
+        edges_index.setdefault(key, []).append(edge)
+
+    result: List[Dict[str, Any]] = []
+    for ep in entry_points:
+        handler = ep.get("handler_function")
+        if not handler:
+            continue
+
+        key = (ep["file"], handler)
+        matching = edges_index.get(key, [])
+        if not matching:
+            continue
+
+        seen: Set[Tuple[str, str]] = set()
+        calls: List[Dict[str, str]] = []
+        for e in matching:
+            ck = (e["callee_module"], e["callee_symbol"])
+            if ck not in seen:
+                seen.add(ck)
+                calls.append({
+                    "callee_module": e["callee_module"],
+                    "callee_symbol": e["callee_symbol"],
+                })
+
+        result.append({
+            "entry_point": {
+                "method": ep["method"],
+                "path": ep["path"],
+                "file": ep["file"],
+            },
+            "handler_function": handler,
+            "cross_file_calls": calls,
+        })
+
+    return result
+
+
 def run_static_analysis(monolith_root: Path) -> Dict[str, Any]:
     project_structure = build_project_structure(monolith_root)
-    
+
     # 获取应用名（使用根目录名称作为应用标识）
     app_name = monolith_root.name
-    
+
     # 分析项目配置（依赖文件）
     config_info = analyze_project_config(monolith_root)
-    
+
     dependency_graph: Dict[str, List[str]] = {}
     file_tags: Dict[str, List[str]] = {}
     entry_points: List[Dict[str, Any]] = []
     symbol_table: List[Dict[str, Any]] = []
 
+    # Cache (file_path, ext, source) for the call-graph second pass
+    source_cache: List[Tuple[Path, str, str]] = []
+
+    # ---- Pass 1: per-file structure analysis (existing logic) ----
     for dirpath, dirnames, filenames in os.walk(monolith_root):
-        # 过滤掉需要忽略的目录（修改 dirnames 会影响 os.walk 的遍历）
         dirnames[:] = [d for d in dirnames if d not in IGNORE_DIRS and not d.startswith('.')]
-        
+
         for name in filenames:
             if name.startswith("."):
                 continue
-            
+
             file_path = Path(dirpath) / name
             ext = file_path.suffix.lower()
-            
-            # 扩展：支持更多的前端文件类型
+
             if ext not in {".py", ".js", ".ts", ".jsx", ".tsx", ".vue"}:
                 continue
-                
+
             if ext == ".py":
                 result = analyze_python_file(monolith_root, file_path, app_name)
             else:
-                # JS, TS, JSX, TSX, Vue 统一走 JS 分析逻辑（主要靠正则）
                 result = analyze_js_like_file(monolith_root, file_path, app_name)
 
             rel_path = result["rel_path"]
@@ -716,27 +1016,65 @@ def run_static_analysis(monolith_root: Path) -> Dict[str, Any]:
                 file_tags[rel_path] = result["tags"]
             entry_points.extend(result["entry_points"])
             symbol_table.extend(result["symbols"])
-    
-    # 提取DynamoDB基本信息（表名列表和schema文件位置）
+
+            # Read source once for the call-graph pass
+            try:
+                with file_path.open("r", encoding="utf-8", errors="ignore") as f:
+                    source_cache.append((file_path, ext, f.read()))
+            except Exception:
+                pass
+
+    # ---- Pass 2: cross-file call graph extraction ----
+    all_call_edges: List[Dict[str, Any]] = []
+
+    # Pre-index symbol_table by file for JS enclosing-function lookup
+    symbols_by_file: Dict[str, List[Dict[str, Any]]] = {}
+    for sym in symbol_table:
+        fp = sym.get("file_path", "")
+        symbols_by_file.setdefault(fp, []).append(sym)
+
+    for file_path, ext, source in source_cache:
+        if ext == ".py":
+            edges = extract_python_call_graph(
+                monolith_root, file_path, source, app_name
+            )
+        else:
+            rel_path = str(file_path.relative_to(monolith_root).as_posix())
+            if app_name:
+                rel_path = f"{app_name}/{rel_path}"
+            file_syms = symbols_by_file.get(rel_path, [])
+            edges = extract_js_call_graph(
+                monolith_root, file_path, source, file_syms, app_name
+            )
+        all_call_edges.extend(edges)
+
+    # ---- Aggregate: per-entry-point dependency map ----
+    entry_point_deps = build_entry_point_call_map(entry_points, all_call_edges)
+
+    # ---- DynamoDB info ----
     dynamodb_info = extract_dynamodb_info(monolith_root, file_tags)
 
-    result = {
+    # ---- Assemble report ----
+    report: Dict[str, Any] = {
         "project_structure": project_structure,
         "entry_points": entry_points,
         "dependency_graph": dependency_graph,
         "file_tags": file_tags,
         "symbol_table": symbol_table,
     }
-    
-    # 只在有配置信息时添加
+
+    if all_call_edges:
+        report["call_graph"] = all_call_edges
+    if entry_point_deps:
+        report["entry_point_dependencies"] = entry_point_deps
+
     if config_info:
-        result["config_info"] = config_info
-    
-    # 添加DynamoDB基本信息
+        report["config_info"] = config_info
+
     if dynamodb_info["used"]:
-        result["dynamodb_info"] = dynamodb_info
-    
-    return result
+        report["dynamodb_info"] = dynamodb_info
+
+    return report
 
 
 def main() -> None:
