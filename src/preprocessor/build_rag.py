@@ -13,27 +13,6 @@ DEFAULT_MONOLITH_DIR = ROOT_DIR / "input_monolith"
 DEFAULT_INDEX_DIR = ROOT_DIR / "storage" / "code_index"
 DEFAULT_ANALYSIS_REPORT = ROOT_DIR / "storage" / "analysis_report.json"
 
-# 从 RAG 索引中排除的文件名黑名单。
-# 这些文件通常是入口点或初始化脚本，内容以路由注册、全局配置为主，
-# 几乎对所有查询都有一定的词汇覆盖，导致它们长期占据检索排名前列。
-# Agent 可以直接用 ReadFileTool 按需读取这些已知文件，无需通过 RAG 检索。
-RAG_EXCLUDE_FILENAMES = {
-    # Python 入口 / 初始化脚本
-    'app.py',           # Flask/FastAPI 入口，主要含路由注册
-    'init_dynamodb.py', # DynamoDB 表创建脚本，已被 SAM template 替代
-    'init_db.py',
-    'create_tables.py',
-    'setup_db.py',
-    # Node.js 入口 / 初始化脚本
-    'server.js',        # Express 应用入口
-    'app.js',           # Express 应用入口（备选命名）
-    'index.js',         # Node.js 模块入口
-    # 配置文件（通常含环境变量读取，与具体业务逻辑无关）
-    'config.js',
-    'config.py',
-    'settings.py',
-}
-
 
 def load_analysis_report(report_path: Path) -> Dict[str, Any]:
     """加载静态分析报告"""
@@ -116,15 +95,13 @@ def sliding_window_chunks(source: str, rel_path: str, window: int = SLIDING_WIND
 
 def build_documents(monolith_root: Path, analysis_report: Dict[str, Any]) -> List[Document]:
     """
-    遍历源代码，按以下策略构建 RAG 文档（方案二）：
+    遍历源代码，利用静态分析符号表构建 RAG 文档：
 
-    - 有函数/类级别符号的文件 → 按 symbol_table 分片（函数/类粒度）
-    - 无符号的文件（配置文件、简单脚本等）→ 滑动窗口分片
+    - 符号表中有函数/类定义的文件 → 按 symbol_table 分片（函数/类粒度）
+    - 符号表中无符号的文件 → 滑动窗口分片（固定行数，带重叠）
 
-    方案二的核心改进：
-    原先无符号文件整文件作为单个 Document，体积远大于函数级 chunk，
-    向量空间中"覆盖面"更广，导致几乎任何查询都能命中（排名靠前但不精确）。
-    改为滑动窗口后，所有 chunk 大小趋于一致，检索得分可在同一量级上比较。
+    两类 chunk 大小趋于一致，使向量检索得分在同一量级上可比较，
+    无需额外的文件黑名单过滤。
     """
     docs: List[Document] = []
     symbol_table = analysis_report.get("symbol_table", [])
@@ -147,7 +124,6 @@ def build_documents(monolith_root: Path, analysis_report: Dict[str, Any]) -> Lis
 
     stats = {
         "total_files": 0,
-        "excluded_files": 0,
         "symbol_chunked_files": 0,
         "window_chunked_files": 0,
         "symbol_chunks": 0,
@@ -176,14 +152,6 @@ def build_documents(monolith_root: Path, analysis_report: Dict[str, Any]) -> Lis
                 continue
 
             rel_path = file_path.relative_to(monolith_root).as_posix()
-
-            # 跳过黑名单文件：这些文件属于入口/配置/初始化脚本，
-            # 因体积或覆盖面广而容易在检索中产生噪声排名。
-            # Agent 可通过 ReadFileTool 直接访问它们。
-            if file_path.name in RAG_EXCLUDE_FILENAMES:
-                print(f"  [SKIP] {rel_path} (excluded by RAG_EXCLUDE_FILENAMES)")
-                stats["excluded_files"] += 1
-                continue
 
             stats["total_files"] += 1
 
@@ -230,16 +198,15 @@ def build_documents(monolith_root: Path, analysis_report: Dict[str, Any]) -> Lis
                 stats["window_chunked_files"] += 1
                 stats["window_chunks"] += len(window_docs)
 
-    print(f"\n=== Indexing Statistics (Strategy: Symbol + Sliding Window + Blacklist) ===")
-    print(f"Files excluded (blacklist)  : {stats['excluded_files']}")
-    print(f"Files indexed               : {stats['total_files']}")
-    print(f"  - Symbol-level chunked    : {stats['symbol_chunked_files']} files "
+    print(f"\n=== Indexing Statistics (Strategy: Symbol + Sliding Window) ===")
+    print(f"Total files scanned: {stats['total_files']}")
+    print(f"  - Symbol-level chunked : {stats['symbol_chunked_files']} files "
           f"→ {stats['symbol_chunks']} chunks")
-    print(f"  - Window chunked          : {stats['window_chunked_files']} files "
+    print(f"  - Window chunked       : {stats['window_chunked_files']} files "
           f"→ {stats['window_chunks']} chunks  "
           f"(window={SLIDING_WINDOW_LINES}, overlap={SLIDING_WINDOW_OVERLAP})")
-    print(f"\nTotal documents indexed     : {len(docs)}")
-    print(f"==========================================================================\n")
+    print(f"\nTotal documents indexed: {len(docs)}")
+    print(f"================================================================\n")
 
     return docs
 

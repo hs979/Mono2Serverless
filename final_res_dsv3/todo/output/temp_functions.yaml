@@ -1,0 +1,148 @@
+  TodoCreateItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-todo-create-item'
+      CodeUri: lambdas/todo/todo-create-item/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref SharedUtilsLayer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoTable
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          TODO_TABLE: !Ref TodoTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /item
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  TodoDeleteItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-todo-delete-item'
+      CodeUri: lambdas/todo/todo-delete-item/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref SharedUtilsLayer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoTable
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          TODO_TABLE: !Ref TodoTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /item/{id}
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  TodoGetItemByIdFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-todo-get-item-by-id'
+      CodeUri: lambdas/todo/todo-get-item-by-id/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref SharedUtilsLayer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoTable
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          TODO_TABLE: !Ref TodoTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /item/{id}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  TodoGetItemsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-todo-get-items'
+      CodeUri: lambdas/todo/todo-get-items/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref SharedUtilsLayer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoTable
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          TODO_TABLE: !Ref TodoTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /item
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  TodoMarkItemDoneFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-todo-mark-item-done'
+      CodeUri: lambdas/todo/todo-mark-item-done/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref SharedUtilsLayer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoTable
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          TODO_TABLE: !Ref TodoTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /item/{id}/done
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  TodoUpdateItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-todo-update-item'
+      CodeUri: lambdas/todo/todo-update-item/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref SharedUtilsLayer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoTable
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          TODO_TABLE: !Ref TodoTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /item/{id}
+            Method: PUT
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+# --- FUNCTIONS_METADATA ---
+# total_functions: 6
+# logical_names: TodoCreateItemFunction,TodoDeleteItemFunction,TodoGetItemByIdFunction,TodoGetItemsFunction,TodoMarkItemDoneFunction,TodoUpdateItemFunction
+# --- END METADATA ---

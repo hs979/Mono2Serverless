@@ -668,6 +668,8 @@ tasks:
       2. Do NOT read any file in output/lambdas/ — that is the next task's job.
       3. No hardcoded ARNs — use !Ref, !Sub, !GetAtt.
       4. If blueprint says has_database=false, write NO DynamoDB resources.
+      5. Do NOT use SAMValidateTool — this file is a partial fragment, not a
+         deployable SAM template. Validation happens only in the assembly task.
     expected_output: |
       output/temp_shared_resources.yaml containing:
       - SAM template header + Globals + Parameters
@@ -798,6 +800,8 @@ tasks:
       4. Every os.environ key found in handler code MUST appear in Environment.Variables.
       5. Do NOT include DynamoDB/S3/Cognito resource definitions — those are in temp_shared_resources.yaml.
       6. If output/lambdas/ is empty or does not exist, write an empty file with only the metadata comment.
+      7. Do NOT use SAMValidateTool — this file is a partial fragment, not a
+         deployable SAM template. Validation happens only in the assembly task.
     expected_output: |
       output/temp_functions.yaml containing:
       - One AWS::Serverless::Function resource per Lambda directory found on disk
@@ -857,33 +861,12 @@ tasks:
         - Repeat until validation passes or no further fixes are possible.
 
       ============================================================
-      STEP 4: CROSS-CHECK
-      ============================================================
-
-      Use FileListTool to list output/lambdas/ one more time.
-      Verify:
-        1. Every directory in output/lambdas/ -> has exactly one Function in template
-        2. Every CodeUri in template -> matches an actual directory path on disk
-        3. output/layers/shared/ exists on disk <-> SharedUtilsLayer in template
-
-      Fix any discrepancies found, then re-validate.
-
-      ============================================================
-      STEP 5: DEPLOYMENT CONFIG (optional)
+      STEP 4: DEPLOYMENT CONFIG (optional)
       ============================================================
 
       Create output/samconfig.toml with default deployment parameters:
         - stack_name, region, capabilities = ["CAPABILITY_IAM"]
         - confirm_changeset = false for automation
-
-      ============================================================
-      CLEANUP
-      ============================================================
-
-      After output/template.yaml is successfully written and validated,
-      delete the two temp files:
-        - output/temp_shared_resources.yaml
-        - output/temp_functions.yaml
 
       ============================================================
       CRITICAL RULES
@@ -892,12 +875,20 @@ tasks:
       2. No hardcoded ARNs — use !Ref, !Sub, !GetAtt.
       3. Must pass SAMValidateTool before finalizing.
       4. Single output file: output/template.yaml.
+      5. Do NOT cross-check template against output/lambdas/ directories —
+         that is the next agent's (Consistency Validator) responsibility.
+      6. Do NOT delete any files — you have no delete tool. Temp files will
+         be cleaned up manually.
+      7. ANTI-LOOP: Once SAMValidateTool returns "Validation Successful",
+         the template is CORRECT. Do NOT re-read template.yaml to "include
+         in the final answer" or to "double check". Proceed immediately to
+         writing samconfig.toml (Step 4) and then return your Final Answer.
+         You MUST NOT read template.yaml more than 3 times total in this task.
     expected_output: |
       Validated SAM template in output/ directory:
       - output/template.yaml (complete: header, Lambdas, API Gateway, DynamoDB,
         Cognito, S3, SharedUtilsLayer if applicable, Outputs)
       - output/samconfig.toml (optional)
-      - Temp files (temp_shared_resources.yaml, temp_functions.yaml) deleted
 
       Ready for deployment with 'sam build && sam deploy --guided'.
 
