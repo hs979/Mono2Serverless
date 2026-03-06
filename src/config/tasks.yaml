@@ -330,13 +330,10 @@ tasks:
       to generate working infrastructure.
     expected_output: |
       A complete blueprint.json at storage/blueprint.json with all sections populated:
-      metadata, lambda_functions, dynamodb_tables, s3_buckets, cognito, 
-      api_gateway, table_initialization, dropped_functions.
+      metadata, lambda_functions, lambda_invoke_permissions, dynamodb_tables,
+      s3_buckets, cognito, api_gateway, dropped_functions.
       
       Must preserve all monolith functionality and follow architecture principles.
-      
-      Sections: metadata, lambda_functions, lambda_invoke_permissions,
-      dynamodb_tables, s3_buckets, cognito, api_gateway, dropped_functions.
 
   - id: generate_complete_application
     agent: code_developer
@@ -365,8 +362,8 @@ tasks:
          When CodeRAGTool returns promising results, use ReadFileTool to read the full
          file for complete context — do not rely on the RAG snippet alone.
       3. If after reading source_files and querying CodeRAGTool you still lack context,
-         use FileListTool to discover the project structure and ReadFileTool to read
-         additional files directly.
+         use ReadFileTool to read additional files directly (e.g., files referenced
+         in imports or called by the source code).
       
       Step 1.2: Transform to Lambda Handler
       Create: output/lambdas/{domain}/{lambda_name}/handler.py (or .js)
@@ -732,8 +729,8 @@ tasks:
             - Derive the CodeUri as: lambdas/<domain>/<function-name>/
 
         3c. Generate the YAML block for each Lambda in this domain and APPEND
-            to output/temp_functions.yaml using WriteFileTool.
-            Use APPEND mode — do NOT overwrite previously written domains.
+            to output/temp_functions.yaml using WriteFileTool with append=True.
+            This preserves previously written domains.
 
       Lambda YAML format:
         ```yaml
@@ -783,7 +780,7 @@ tasks:
       STEP 5: WRITE METADATA COMMENT
       ============================================================
 
-      At the end of output/temp_functions.yaml, append:
+      At the end of output/temp_functions.yaml, append (using append=True):
         ```yaml
         # --- FUNCTIONS_METADATA ---
         # total_functions: <count>
@@ -795,7 +792,7 @@ tasks:
       CRITICAL RULES
       ============================================================
       1. Process domains ONE AT A TIME — do not read all handler files at once.
-      2. APPEND to output/temp_functions.yaml after each domain; never overwrite.
+      2. APPEND to output/temp_functions.yaml (use append=True) after each domain; never overwrite.
       3. CodeUri must exactly match the directory path on disk.
       4. Every os.environ key found in handler code MUST appear in Environment.Variables.
       5. Do NOT include DynamoDB/S3/Cognito resource definitions — those are in temp_shared_resources.yaml.
@@ -908,6 +905,9 @@ tasks:
 
       This is the FINAL quality gate before the application is considered deployable.
 
+      EXECUTION MODEL: Steps 1→2→3→4→5 are strictly sequential.
+      Do NOT return to a previous step after completing it.
+
       ============================================================
       STEP 1: INVENTORY — Build the ground truth from disk
       ============================================================
@@ -917,99 +917,111 @@ tasks:
             { "lambdas/orders/orders-get-order/": "handler.py" }
           Record the handler file name (handler.py or handler.js) for each.
 
-      1b. Read output/template.yaml and extract ALL AWS::Serverless::Function resources.
-          For each, record: LogicalName, CodeUri, Handler, Environment.Variables,
-          Policies, Layers, and Events (Api Path + Method).
+      1b. Read output/template.yaml ONCE and extract ALL AWS::Serverless::Function
+          resources. For each, record: LogicalName, CodeUri, Handler,
+          Environment.Variables, Policies, Layers, and Events (Api Path + Method).
 
-      1c. Read storage/blueprint.json and extract lambda_functions (as a reference
-          for expected endpoints) and lambda_invoke_permissions.
+      1c. Read storage/blueprint.json ONCE and extract lambda_functions (as a
+          reference for expected endpoints) and lambda_invoke_permissions.
 
-      1d. Check if output/layers/shared/ exists on disk.
+      1d. Check if output/layers/shared/ exists on disk using FileListTool.
 
       ============================================================
-      STEP 2: CHECK — Run 7 consistency checks
+      STEP 2: CHECK — Run 7 consistency checks in 3 phases
       ============================================================
 
-      For EACH check below, record every mismatch as a finding with:
+      Record every mismatch as a finding with:
         - check_id (e.g., "C1")
         - severity ("ERROR" or "WARNING")
         - description (human-readable)
         - affected_resource (LogicalName or directory)
         - suggested_fix
 
+      --- Phase A: Structural checks (no handler reading needed) ---
+
       CHECK C1 — Directory ↔ Function Coverage (bidirectional)
         - For every Lambda directory on disk: verify a matching Function exists in
           template.yaml whose CodeUri points to that directory.
-        - For every Function in template.yaml: verify its CodeUri directory exists on disk.
-        - Severity: ERROR (missing function = deployment failure)
+        - For every Function in template.yaml: verify its CodeUri directory exists
+          on disk.
+        - Severity: ERROR
 
       CHECK C2 — CodeUri Accuracy
-        - For each Function, verify CodeUri ends with "/" and matches an actual disk path.
+        - For each Function, verify CodeUri ends with "/" and matches an actual
+          disk path.
         - Severity: ERROR
+
+      --- Phase B: Handler-level checks (read each handler ONCE) ---
+
+      IMPORTANT: For EACH Lambda function, read its handler file exactly ONCE,
+      then perform ALL four checks (C3, C4, C5, C6) on the content you just read
+      before moving to the next Lambda. Do NOT re-read the same handler file.
 
       CHECK C3 — Handler Validity
-        - For each Function, parse the Handler value (e.g., "handler.lambda_handler").
-        - Read the actual handler file and verify the function name exists in it.
+        - Parse the Handler value (e.g., "handler.lambda_handler").
+        - Verify the function name exists in the handler file content.
         - Python: look for "def lambda_handler(" or the specified function name.
-        - Node.js: look for "exports.handler" / "module.exports.handler" / "export const handler".
-        - Severity: ERROR (wrong handler = Lambda invocation crash)
+        - Node.js: look for "exports.handler" / "module.exports.handler".
+        - Severity: ERROR
 
       CHECK C4 — Environment Variable Completeness
-        - For each Function, read its handler file and extract ALL os.environ / os.environ.get /
-          os.getenv keys (Python) or process.env.KEY references (Node.js).
+        - Extract ALL os.environ / os.environ.get / os.getenv keys (Python)
+          or process.env.KEY references (Node.js) from the handler content.
         - Compare against the Function's Environment.Variables in template.yaml.
-        - Any key used in code but missing from template → ERROR.
-        - Any key in template but not used in code → WARNING (harmless but noisy).
+        - Key used in code but missing from template → ERROR.
+        - Key in template but not used in code → WARNING.
 
       CHECK C5 — IAM Policy Alignment
-        - For each Function, read its handler file:
-          * If it uses boto3.resource('dynamodb') or boto3.client('dynamodb') or
-            AWS.DynamoDB.DocumentClient → must have DynamoDBCrudPolicy for the relevant table.
-          * If it uses boto3.client('s3') or AWS.S3 → must have S3CrudPolicy.
-          * If it uses boto3.client('lambda').invoke() or AWS.Lambda().invoke →
-            must have LambdaInvokePolicy for the target function.
-        - Severity: ERROR (missing policy = AccessDeniedException at runtime)
+        - From the handler content, check:
+          * boto3.resource('dynamodb') or boto3.client('dynamodb') →
+            must have DynamoDBCrudPolicy
+          * boto3.client('s3') → must have S3CrudPolicy
+          * boto3.client('lambda').invoke() → must have LambdaInvokePolicy
+        - Severity: ERROR
 
       CHECK C6 — Layer Consistency
-        - If output/layers/shared/ exists on disk:
-          * template.yaml must contain a SharedUtilsLayer resource.
-          * Every Function that imports from the shared layer must have
-            "!Ref SharedUtilsLayer" in its Layers list.
-        - If output/layers/shared/ does NOT exist:
-          * template.yaml must NOT reference SharedUtilsLayer.
+        - From the handler content, check if it imports from the shared layer
+          (e.g., "from shared_utils import" or "require('/opt/nodejs/shared')").
+        - If yes → Function must have "!Ref SharedUtilsLayer" in Layers.
+        - If output/layers/shared/ does NOT exist on disk →
+          template.yaml must NOT reference SharedUtilsLayer.
         - Severity: ERROR
+
+      --- Phase C: Blueprint matching (no handler reading needed) ---
 
       CHECK C7 — API Event Matching
         - For each Function with an Api Event, compare (Path, Method) against the
           corresponding entry in blueprint.json lambda_functions[].entry_points.
-        - Every blueprint entry_point should be covered by exactly one Function's Api Event.
-        - Severity: ERROR (missing route = 404 for that endpoint)
+        - Every blueprint entry_point should be covered by exactly one Function's
+          Api Event.
+        - Severity: ERROR
 
       ============================================================
-      STEP 3: FIX — Resolve all ERROR-level findings
+      STEP 3: FIX — Resolve all ERROR-level findings (one pass)
       ============================================================
 
-      For each ERROR finding, apply the fix:
+      Collect ALL ERROR findings from Step 2 and apply fixes in a single batch:
 
-      - C1 (missing Function): Add a new AWS::Serverless::Function block to template.yaml
-        by reading the handler file and inferring CodeUri, Handler, env vars, and policies.
+      - C1 (missing Function): Add a new AWS::Serverless::Function block to
+        template.yaml. You already read the handler in Phase B — use that info.
       - C1 (orphan Function): Remove the Function block from template.yaml.
       - C2 (bad CodeUri): Correct the CodeUri to match the actual directory path.
-      - C3 (bad Handler): Fix the Handler property or rename the function in handler code.
-      - C4 (missing env var): Add the missing key to Environment.Variables in template.yaml
-        with an appropriate value (usually !Ref to a resource).
-      - C5 (missing policy): Add the required SAM policy to the Function's Policies list.
-      - C6 (layer mismatch): Add or remove SharedUtilsLayer references as needed.
+      - C3 (bad Handler): Fix the Handler property in template.yaml.
+      - C4 (missing env var): Add the missing key to Environment.Variables.
+      - C5 (missing policy): Add the required SAM policy to Policies list.
+      - C6 (layer mismatch): Add or remove SharedUtilsLayer references.
       - C7 (route mismatch): Fix the Api Event Path/Method in template.yaml.
 
-      After applying ALL fixes, write the updated template.yaml using WriteFileTool.
+      After applying ALL fixes, write the updated template.yaml ONCE.
+      If there are zero ERROR findings, skip this step entirely.
 
       ============================================================
       STEP 4: RE-VALIDATE
       ============================================================
 
-      Run SAMValidateTool on the updated output/template.yaml.
+      Run SAMValidateTool on the template content.
       If validation fails, fix the specific error and re-validate (up to 3 retries).
+      After validation passes (or after 3 retries), proceed to Step 5 regardless.
 
       ============================================================
       STEP 5: GENERATE REPORT
@@ -1039,10 +1051,17 @@ tasks:
       CRITICAL RULES
       ============================================================
       1. Read files from disk — do NOT rely on previous task context.
-      2. Fix template.yaml for infrastructure mismatches; fix handler code ONLY when
-         the handler itself is clearly wrong (e.g., wrong function name).
-      3. ALWAYS re-validate with SAMValidateTool after any template modification.
-      4. Write consistency_report.json even if all checks pass (report status="PASS").
+      2. Fix template.yaml for infrastructure mismatches; fix handler code ONLY
+         when the handler itself is clearly wrong (e.g., wrong function name).
+      3. Write consistency_report.json even if all checks pass (status="PASS").
+      4. STRICT SEQUENTIAL EXECUTION: Steps 1→2→3→4→5 in order. Do NOT go
+         back to re-run checks after fixing. Checks run ONCE, fixes run ONCE.
+      5. READ LIMITS: template.yaml at most 2 reads total (Step 1 + Step 3 fix).
+         Each handler file at most 1 read (Phase B). blueprint.json at most 1 read.
+      6. ANTI-LOOP: Once SAMValidateTool returns "Validation Successful", proceed
+         immediately to Step 5. Do NOT re-read template.yaml to "include in the
+         final answer". Your Final Answer should be the consistency_report.json
+         content, not the template content.
     expected_output: |
       Consistency validation completed:
       - All 7 cross-checks executed between output/lambdas/ and output/template.yaml

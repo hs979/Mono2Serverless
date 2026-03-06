@@ -13,6 +13,7 @@ class WriteFileInput(BaseModel):
     """Input schema for WriteFileTool."""
     path: str = Field(..., description="Relative path to the file to write.")
     content: str = Field(..., description="The content to write to the file.")
+    append: bool = Field(default=False, description="If True, append to existing file instead of overwriting.")
 
 class FileListInput(BaseModel):
     """Input schema for FileListTool."""
@@ -44,7 +45,10 @@ class ReadFileTool(BaseTool):
 
 class WriteFileTool(BaseTool):
     name: str = "WriteFileTool"
-    description: str = "Write content to a file at the given path. Creates directories if needed."
+    description: str = (
+        "Write content to a file at the given path. Creates directories if needed. "
+        "Set append=True to append to an existing file instead of overwriting."
+    )
     args_schema: Type[BaseModel] = WriteFileInput
     root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[2])
 
@@ -53,13 +57,15 @@ class WriteFileTool(BaseTool):
         if root:
             self.root = root
 
-    def _run(self, path: str, content: str) -> str:
+    def _run(self, path: str, content: str, append: bool = False) -> str:
         try:
             target = (self.root / path).resolve()
             target.parent.mkdir(parents=True, exist_ok=True)
-            with target.open("w", encoding="utf-8") as f:
+            mode = "a" if append else "w"
+            with target.open(mode, encoding="utf-8") as f:
                 f.write(content)
-            return f"Successfully wrote to {path}"
+            action = "appended to" if append else "wrote to"
+            return f"Successfully {action} {path}"
         except Exception as e:
             return f"Error writing file: {str(e)}"
 
