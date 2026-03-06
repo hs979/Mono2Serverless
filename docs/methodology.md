@@ -54,7 +54,44 @@ static_analyzer.py 对单体应用做纯静态（无 LLM）代码分析，产出
   "config_info": {"nodejs_dependencies": [...]},
   "dynamodb_info": {"used": true, "probable_tables": ["users-table"], "schema_files": ["db.js"]}
 }
+//最新补充：
+1. src/preprocessor/static_analyzer.py — 核心新增约 200 行
+- extract_python_call_graph() — 基于 AST 分析 Python 文件的跨文件函数调用。策略：先从 import 语句建立 local_name → module_path 映射，过滤掉第三方包（只保留磁盘上有对应文件的本地模块），然后遍历每个 FunctionDef 体内的 ast.Call 节点，匹配 obj.method() 和 func() 两种调用模式。
+- extract_js_call_graph() + _find_enclosing_js_function() — 基于正则分析 JS/TS 文件的跨文件调用。只追踪相对路径导入（以 . 开头的 require() / import），利用 symbol_table 的行号范围将每个调用归属到其所在的函数/路由 handler。
+- build_entry_point_call_map() — 将原始 call_graph 边按 entry_point 聚合。通过 handler_function 字段精确匹配每个 HTTP 路由的处理函数，输出 Architect 可直接消费的 entry_point_dependencies 结构。
+- run_static_analysis() — 新增第二遍扫描：利用第一遍缓存的 source 文本，调用 call graph 提取函数，最终在 analysis_report.json 中输出 call_graph 和 entry_point_dependencies 两个新字段。
+- entry_points 增加 handler_function 字段 — Python 端从装饰器所属函数名提取，JS 端从 METHOD_path 命名规则生成。
+2. src/config/tasks.yaml — Architect task 新增 ~40 行指导
+- 新增 CALL GRAPH DATA 章节，指导 Architect 使用 entry_point_dependencies 机械化识别 Lambda 间调用关系
+- 明确告知 Architect 不需要用 ReadFileTool 读源文件来推理调用关系，只需对 DynamoDB schema files 使用 ReadFileTool
+- 更新 source_files 推导规则：从 entry_point_dependencies 的 callee_module 列表推导
+3. src/config/agents.yaml — Architect backstory 更新
+- 新增"预计算静态分析数据"描述
+- 将第 3 条原则从 "Layer-First Dependencies" 改为 "Data-Driven Design"
 
+//异步/事件驱动架构升级（基于调用图的简化策略）：
+核心思路：利用已有的 call_graph + entry_point_dependencies 数据，让 Architect Agent 基于业务语义推理决定每条 cross-Lambda 调用关系应采用同步 invoke、SQS 还是 EventBridge，而非通过静态分析检测 try-catch/post_response 等代码模式。
+改动清单：
+1. knowledge/async_serverless_patterns.md — 新增知识文件
+   - SQS/EventBridge 适用场景、决策流程图
+   - Producer/Consumer Lambda 代码模板（Python）
+   - SAM 模板片段（Queue+DLQ、EventBridge Rule+LambdaPermission）
+2. knowledge/basic_serverless_architecture.md — 扩展
+   - 新增 "Extended Architecture: Event-Driven Pattern" 章节
+   - Inter-Lambda Communication 从纯 SDK Invoke 扩展为三种机制（Sync/SQS/EventBridge）
+   - Blueprint JSON 示例新增 sqs_queues、eventbridge_rules 字段
+3. src/config/tasks.yaml — 多处更新
+   - Architect task: LAMBDA COMMUNICATION STRATEGY 重写为 Sync+Async 三种机制 + 4 步决策流程
+   - Architect output: metadata 新增 has_async_flows；新增 sqs_queues(section 8)、eventbridge_rules(section 9)
+   - Code Developer task: 删除"DO NOT generate SQS/EventBridge"禁令，新增 trigger_type="sqs"/"eventbridge" Lambda 代码生成规则
+   - SAM Engineer shared_resources: 新增 Section H (SQS Queues) 和 Section I (EventBridge Rules)
+   - SAM Engineer functions: Lambda YAML 扩展为三种变体（api/sqs/eventbridge-triggered），Policy 推导新增 SQSSendMessagePolicy/EventBridgePutEventsPolicy
+   - Consistency Validator: 9 项检查（原 7 项 + C8 SQS 一致性 + C9 EventBridge 一致性）
+4. src/config/agents.yaml — Architect + Consistency Validator 更新
+   - Architect backstory 新增第 5 条原则 "Async-First Analysis" 含三条决策规则
+   - Consistency Validator backstory 新增 C8/C9 职责描述
+5. src/main.py — Architect knowledge 绑定
+   - 新增 async_patterns_knowledge，绑定到 Architect Agent
 ---
 第二阶段：预处理（build_rag.py）
 触发方式：python src/preprocessor/build_rag.py（手动运行，main.py 之前）
@@ -92,7 +129,7 @@ max_iter：50
 2. 检查 file_tags 中是否有 Auth tag → 决定是否启用 Cognito
 3. 检查 dynamodb_info.used → 若为 true，用 ReadFileTool 读取 schema_files 中的文件，提取表结构（partition key、sort key、GSI）
 4. 将 entry_points 中的每个 HTTP endpoint 映射为一个独立 Lambda（严格 one-endpoint-one-Lambda）
-5. 识别 Lambda 间调用关系，记录在 lambda_invoke_permissions
+5. 基于analysis_report.json做架构决策，不再需要用 ReadFileTool 大量阅读源码来推理调用关系。
 6. 将认证端点（/register, /login, /logout 等）列入 dropped_functions（"Infrastructure over Code"原则）
 7. 一次性写入完整的 storage/blueprint.json
 blueprint.json 核心结构：metadata / lambda_functions / dynamodb_tables / s3_buckets / cognito / api_gateway / lambda_invoke_permissions / dropped_functions

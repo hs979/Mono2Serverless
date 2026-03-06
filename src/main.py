@@ -98,20 +98,26 @@ def build_agents() -> dict:
     # Knowledge Sources
     sam_knowledge = TextFileKnowledgeSource(
         file_paths=["sam_reference.md"],
-        chunk_size=500,
-        chunk_overlap=50
+        chunk_size=1200,
+        chunk_overlap=150
     )
 
     lambda_coding_knowledge = TextFileKnowledgeSource(
         file_paths=["lambda_coding_reference.md"],
-        chunk_size=500,
-        chunk_overlap=50
+        chunk_size=1200,
+        chunk_overlap=150
     )
 
     basic_serverless_knowledge = TextFileKnowledgeSource(
         file_paths=["basic_serverless_architecture.md"],
-        chunk_size=500,
-        chunk_overlap=50
+        chunk_size=1200,
+        chunk_overlap=150
+    )
+
+    async_patterns_knowledge = TextFileKnowledgeSource(
+        file_paths=["async_serverless_patterns.md"],
+        chunk_size=1200,
+        chunk_overlap=150
     )
 
     agents = {}
@@ -123,7 +129,7 @@ def build_agents() -> dict:
         goal=arch_cfg["goal"],
         backstory=arch_cfg["backstory"],
         tools=[ReadFileTool(ROOT_DIR), WriteFileTool(ROOT_DIR)],
-        knowledge_sources=[basic_serverless_knowledge],
+        knowledge_sources=[basic_serverless_knowledge, async_patterns_knowledge],
         embedder=OLLAMA_EMBEDDER_CONFIG,
         verbose=True,
         allow_delegation=False,
@@ -141,7 +147,7 @@ def build_agents() -> dict:
             CodeRAGTool(ROOT_DIR / "storage" / "code_index"),
             WriteFileTool(ROOT_DIR),
         ],
-        knowledge_sources=[lambda_coding_knowledge],
+        knowledge_sources=[lambda_coding_knowledge, async_patterns_knowledge],
         embedder=OLLAMA_EMBEDDER_CONFIG,
         verbose=True,
         allow_delegation=False,
@@ -158,7 +164,7 @@ def build_agents() -> dict:
             ReadFileTool(ROOT_DIR),
             WriteFileTool(ROOT_DIR),
             FileListTool(ROOT_DIR),
-            SAMValidateTool(),
+            SAMValidateTool(ROOT_DIR),
         ],
         knowledge_sources=[sam_knowledge],
         embedder=OLLAMA_EMBEDDER_CONFIG,
@@ -177,9 +183,9 @@ def build_agents() -> dict:
             ReadFileTool(ROOT_DIR),
             WriteFileTool(ROOT_DIR),
             FileListTool(ROOT_DIR),
-            SAMValidateTool(),
+            SAMValidateTool(ROOT_DIR),
         ],
-        knowledge_sources=[sam_knowledge, lambda_coding_knowledge],
+        knowledge_sources=[sam_knowledge, lambda_coding_knowledge, async_patterns_knowledge],
         embedder=OLLAMA_EMBEDDER_CONFIG,
         verbose=True,
         allow_delegation=False,
@@ -199,7 +205,7 @@ def build_tasks(agents: dict) -> list:
     # 这些 task 清空前序上下文，避免 context window 溢出。
     # 它们完全依赖磁盘文件而非 CrewAI 传递的上游 task output。
     context_clearing_tasks = {
-        "generate_sam_templates",
+        "generate_complete_application",
         "generate_shared_resources_template",
         "generate_functions_template",
         "assemble_final_template",

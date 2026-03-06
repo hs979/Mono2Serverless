@@ -374,13 +374,14 @@ await s3.send(new DeleteObjectCommand({
 
 ---
 
-## 8. Lambda-to-Lambda Invocation (AWS SDK Direct Invoke)
+## 8. Cross-Lambda Communication Patterns
 
-Never use HTTP fetch/requests/axios to call another Lambda via API Gateway URL.
-Always use the AWS SDK Lambda `invoke` API. Read the target function name from an
-environment variable (set via `!Ref` in the SAM template).
+Three mechanisms for cross-Lambda communication. Choose based on the blueprint:
 
-### Python — Synchronous (caller waits for result)
+### 8a. Synchronous Invoke (lambda_invoke_permissions)
+
+Caller NEEDS the callee's return value for its own HTTP response.
+
 ```python
 import boto3, json, os
 
@@ -388,7 +389,7 @@ lambda_client = boto3.client('lambda')
 
 response = lambda_client.invoke(
     FunctionName=os.environ['PROCESS_PAYMENT_FUNCTION_NAME'],
-    InvocationType='RequestResponse',      # synchronous
+    InvocationType='RequestResponse',
     Payload=json.dumps({'amount': amount, 'userId': user_id})
 )
 result = json.loads(response['Payload'].read())
@@ -396,41 +397,140 @@ if result.get('statusCode') != 200:
     raise Exception(f"Payment failed: {result.get('body')}")
 ```
 
-### Python — Asynchronous (fire-and-forget)
-```python
-lambda_client.invoke(
-    FunctionName=os.environ['NOTIFY_FUNCTION_NAME'],
-    InvocationType='Event',               # async, caller does not wait
-    Payload=json.dumps({'userId': user_id, 'message': 'Order created'})
-)
-```
-
-### Node.js — Synchronous (AWS SDK v3)
 ```javascript
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 
 const lambdaClient = new LambdaClient({});
-
 const response = await lambdaClient.send(new InvokeCommand({
     FunctionName: process.env.PROCESS_PAYMENT_FUNCTION_NAME,
     InvocationType: 'RequestResponse',
     Payload: JSON.stringify({ amount, userId })
 }));
-
 const result = JSON.parse(new TextDecoder().decode(response.Payload));
 ```
 
-### Node.js — Asynchronous (AWS SDK v3)
+### 8b. SQS Publish (publishes_to type="sqs")
+
+Fire-and-forget: caller does NOT need result. Single consumer.
+
+```python
+import boto3, json, os
+
+sqs = boto3.client('sqs')
+
+sqs.send_message(
+    QueueUrl=os.environ['BESTSELLER_QUEUE_URL'],
+    MessageBody=json.dumps({
+        'orderId': order_id,
+        'books': purchased_books
+    })
+)
+```
+
 ```javascript
-await lambdaClient.send(new InvokeCommand({
-    FunctionName: process.env.NOTIFY_FUNCTION_NAME,
-    InvocationType: 'Event',
-    Payload: JSON.stringify({ userId, message: 'Order created' })
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+
+const sqsClient = new SQSClient({});
+await sqsClient.send(new SendMessageCommand({
+    QueueUrl: process.env.BESTSELLER_QUEUE_URL,
+    MessageBody: JSON.stringify({ orderId, books: purchasedBooks })
 }));
 ```
 
-> **Rule**: `InvocationType: 'RequestResponse'` — caller blocks until target returns.
-> `InvocationType: 'Event'` — caller fires and immediately continues (no result).
+### 8c. EventBridge Publish (publishes_to type="eventbridge")
+
+Event notification: one or more consumers react independently.
+
+```python
+import boto3, json
+
+events = boto3.client('events')
+
+events.put_events(Entries=[{
+    'Source': 'app.orders',
+    'DetailType': 'OrderCompleted',
+    'Detail': json.dumps({
+        'orderId': order_id,
+        'userId': user_id,
+        'totalAmount': total
+    })
+}])
+```
+
+```javascript
+import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
+
+const ebClient = new EventBridgeClient({});
+await ebClient.send(new PutEventsCommand({
+    Entries: [{
+        Source: 'app.orders',
+        DetailType: 'OrderCompleted',
+        Detail: JSON.stringify({ orderId, userId, totalAmount: total })
+    }]
+}));
+```
+
+> **Rules**:
+> - Do NOT use `lambda.invoke(InvocationType='Event')` for async — use SQS or EventBridge.
+> - Do NOT use HTTP fetch/requests/axios to call another Lambda via API Gateway URL.
+> - Target FunctionName / QueueUrl / EventBus read from environment variables.
+
+---
+
+## 8d. SQS Consumer Handler Pattern (trigger_type="sqs")
+
+SQS-triggered Lambdas receive `event['Records']`. No API Gateway response format needed.
+
+```python
+import json, logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def lambda_handler(event, context):
+    for record in event['Records']:
+        payload = json.loads(record['body'])
+        process_item(payload)
+```
+
+```javascript
+export const handler = async (event) => {
+    for (const record of event.Records) {
+        const payload = JSON.parse(record.body);
+        await processItem(payload);
+    }
+};
+```
+
+## 8e. EventBridge Consumer Handler Pattern (trigger_type="eventbridge")
+
+EventBridge-triggered Lambdas receive event detail directly. No API Gateway response format needed.
+
+```python
+import json, logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def lambda_handler(event, context):
+    detail = event['detail']
+    user_id = detail['userId']
+    order_id = detail['orderId']
+    add_loyalty_points(user_id, order_id)
+```
+
+```javascript
+export const handler = async (event) => {
+    const { userId, orderId } = event.detail;
+    await addLoyaltyPoints(userId, orderId);
+};
+```
+
+> **Consumer rules**:
+> - SQS consumers iterate `event['Records']` and parse `record['body']`.
+> - EventBridge consumers access `event['detail']` directly.
+> - Neither type returns `{ statusCode, headers, body }` — no API Gateway wrapper.
+> - Consumer Lambdas should be **idempotent** (safe to process the same message twice).
 
 ---
 
@@ -512,9 +612,12 @@ export const handler = async (event) => {
 
 ### Python — requirements.txt
 ```
-boto3>=1.26.0
+# boto3 is pre-installed in Lambda Python runtimes.
+# Include it only if you need to pin a specific version for reproducible builds.
+# boto3>=1.34.0
 ```
-- Always include `boto3`.
+- `boto3` is pre-installed in all Python Lambda runtimes. Only include it in
+  `requirements.txt` if you need to pin a specific version for reproducible builds.
 - Include only 3rd-party libraries used by this specific Lambda.
 - Do NOT include `aws-lambda-powertools` unless explicitly used by the monolith.
 - Do NOT include libraries already provided by a shared Lambda Layer.
@@ -573,10 +676,12 @@ output/
 |---|---|
 | `boto3.client()` / `new DynamoDBClient()` inside the handler | Initialize SDK clients outside the handler |
 | Hardcode `TableName = 'my-table'` | Use `os.environ['TABLE_NAME']` |
-| Use HTTP requests to call another Lambda | Use `lambda_client.invoke()` |
+| Use HTTP requests to call another Lambda | Use SDK invoke, SQS, or EventBridge |
+| Use `lambda.invoke(InvocationType='Event')` for async | Use SQS `send_message` or EventBridge `put_events` |
 | Write JWT validation / token decode logic | Read `event['requestContext']['authorizer']['claims']` |
 | Create a Users table for authentication | Use Cognito — no Lambda auth code needed |
-| Return bare Python dict without `statusCode` | Always return `{'statusCode': ..., 'body': ...}` |
+| Return bare Python dict without `statusCode` (API Lambda) | Always return `{'statusCode': ..., 'body': ...}` |
+| Return `{statusCode, body}` from SQS/EventBridge consumer | Consumer Lambdas have no API Gateway response format |
 | `import *` from heavy frameworks (Flask, Django) | Import only what is needed |
 | Use `aws-sdk` (v2) in Node.js Lambda | Use `@aws-sdk/*` (v3) modular packages |
 | Store user data in global state between invocations | Keep state in DynamoDB / S3 |

@@ -1,17 +1,28 @@
-# Basic Serverless Architecture for Monolith Migration
+# Serverless Architecture Reference for Monolith Migration
 
-This document provides a streamlined, practical approach to migrating monolithic applications to AWS Serverless architecture. 
+This document provides architecture patterns, component rules, and the canonical
+blueprint schema for migrating monolithic applications to AWS Serverless.
 
 ---
 
-## A Practical Architecture Pattern
+## Architecture Overview
 
 ```
-Client → API Gateway (REST API) → Lambda Functions → DynamoDB / S3
-                ↓
-        Cognito User Pool (if auth exists in monolith)
-                ↓
-        CloudWatch (monitoring)
+Client → API Gateway (REST) → Lambda (API) → DynamoDB / S3
+              ↓                    │
+    Cognito User Pool          (if cross-Lambda calls exist)
+    (if auth in monolith)          │
+                              ┌────┴─────────────────────────┐
+                              │                              │
+                         sync invoke            async publish
+                         (RequestResponse)           │
+                              │               ┌──────┴──────┐
+                              ▼               ▼              ▼
+                       Lambda (internal)   SQS Queue    EventBridge
+                                              │         │         │
+                                              ▼         ▼         ▼
+                                        Lambda (sqs)  Lambda   Lambda
+                                                     (eb-A)   (eb-B)
 ```
 
 ---
@@ -19,48 +30,47 @@ Client → API Gateway (REST API) → Lambda Functions → DynamoDB / S3
 ## Required Components
 
 ### 1. API Gateway (REST API)
-- **Purpose**: HTTP entry point replacing monolith's web server
-- **Configuration**:
-  - One API Gateway route per **api** BCU only; internal BCUs are standalone Lambdas with NO API Gateway route
-  - Keep the same HTTP paths and methods
-  - CORS enabled for external clients
-  - Cognito Authorizer (if auth exists in monolith)
+- HTTP entry point replacing the monolith's web server
+- One route per API Lambda; non-API Lambdas have NO API Gateway route
+- Keep the same HTTP paths and methods from the monolith
+- CORS enabled for external clients
+- Cognito Authorizer attached only if auth exists in monolith
 
 ### 2. Lambda Functions
-- **Purpose**: Execute business logic in a serverless environment
-- **Design**: **ONE Business Capability Unit (BCU) = ONE Lambda function**
-  - **API BCU**: each (HTTP method + path) → one Lambda; `trigger_type: "api"`; field `entry_points`
-  - **Internal BCU**: a non-endpoint function that is called by 2+ Lambdas and has multi-step non-trivial logic →
-    `trigger_type: "internal"`; field `internal_path`, `called_by` (MUST be non-empty)
-     Do NOT use if the entire operation is a single AWS SDK call — inline it in the caller instead
-  - **Scheduled BCU**: a periodic maintenance function with meaningful logic not covered by native AWS features →
-    `trigger_type: "scheduled"`; field `schedule_expression`; check DynamoDB TTL before creating expiry-cleanup Lambdas
-  - **Cognito BCU**: triggered by Cognito Post-Confirmation (only if registration has business side-effects) →
-    `trigger_type: "cognito"`
-  -  When in doubt, keep logic inside the calling Lambda — avoid over-splitting
-- **Principle**: Single-responsibility (one handler does one thing)
-- **Folder Organization**: group by domain at folder level, keep handlers split
-  - `lambdas/orders/get-order/handler.py` (api BCU)
-  - `lambdas/cart/delete-items/handler.py` (internal BCU)
-  - Shared code → Lambda Layer, not a "mega handler"
-- **Inter-Lambda Communication**: ALL Lambda-to-Lambda calls use **AWS SDK Direct Invocation** via `invoke_lambda` from the shared layer
-  - Do NOT use HTTP fetch / `requests.post` / `axios.post` to call another Lambda via API Gateway URL
-  - Do NOT use Function URL (`https://*.lambda-url.*.on.aws`) for internal calls
-  - Import `internal_client.invoke_lambda(function_name, payload, invocation_type)` (provided by base layer)
-  - `function_name` is read from an env var (e.g., `os.environ['TARGET_FUNCTION_NAME']`), set in SAM template via `!Ref`
-  - Invoker Lambda MUST have `LambdaInvokePolicy` in SAM template pointing to the target function
-- **Handler Pattern**:
+
+**ONE endpoint = ONE Lambda** (strict rule):
+- Define an endpoint as (HTTP method + path), e.g. `GET /items/{id}`
+- Create ONE separate Lambda function for EACH endpoint
+- Do NOT group multiple endpoints into one Lambda (no router/switch)
+- Organize folders by domain, keep handlers split
+
+**Trigger types** (exactly four):
+| trigger_type | Meaning | Key fields |
+|---|---|---|
+| `api` | HTTP endpoint via API Gateway | `entry_points` |
+| `internal` | Called by other Lambdas via synchronous SDK invoke | — |
+| `sqs` | Triggered by SQS queue messages | `sqs_source` (no `entry_points`) |
+| `eventbridge` | Triggered by EventBridge rule | `event_pattern` (no `entry_points`) |
+
+**Inter-Lambda Communication** — three mechanisms:
+- **Synchronous Invoke** (caller NEEDS return value): `boto3 lambda.invoke(InvocationType='RequestResponse')`
+- **SQS** (fire-and-forget, single consumer): `sqs.send_message()` → consumer Lambda
+- **EventBridge** (fan-out, multiple consumers): `events.put_events()` → consumer Lambdas
+
+Rules:
+- Do NOT call another Lambda via HTTP (no `requests.post` / `axios.post` to API Gateway URL)
+- Target FunctionName / QueueUrl / EventBus passed via environment variables, set via `!Ref` in SAM
+- Invoker Lambda MUST have the corresponding SAM policy
+
+**Handler pattern** (API Lambda):
 ```python
 def lambda_handler(event, context):
-    # Extract parameters from API Gateway event
     path_params = event.get('pathParameters', {})
     query_params = event.get('queryStringParameters', {})
     body = json.loads(event.get('body', '{}'))
-    
-    # Execute business logic (preserved from monolith)
+
     result = process_business_logic(...)
-    
-    # Return API Gateway response
+
     return {
         'statusCode': 200,
         'headers': {'Content-Type': 'application/json'},
@@ -68,41 +78,38 @@ def lambda_handler(event, context):
     }
 ```
 
-### 3. DynamoDB (if used in monolith)
-- **Migration Strategy**: Direct table structure migration
-  - Keep table names, partition keys, sort keys unchanged
-  - Preserve indexes (GSI/LSI) if they exist
-  - Use `PAY_PER_REQUEST` billing mode for simplicity
-- **User Table (decision rule)**:
-  - If the monolith user table stores **only credentials/auth artifacts** (password/hash/salt/tokens) → **DELETE the entire table** (Cognito replaces it)
-  - If it stores **business profile data that your backend must read/write** (avatar, preferences, address, role, etc.) → split:
-    - Credentials → Cognito User Pool
-    - Business profile fields → DynamoDB `UserProfiles` (optional)
-  - If the only extra field is **`name` (or email/name/phone)** → prefer **Cognito standard attributes**; **do NOT create `UserProfiles` by default**
+### 3. DynamoDB (if database used in monolith)
+- Direct table structure migration; keep partition keys, sort keys, indexes
+- Use `PAY_PER_REQUEST` billing mode
+- **User Table decision**:
+  - Only credentials (password/hash/salt/tokens) → **DELETE** entire table (Cognito replaces it)
+  - Also has business profile data (avatar, preferences, address) → split:
+    credentials → Cognito; business fields → DynamoDB `UserProfiles`
+  - Only `name`/`email`/`phone` beyond credentials → use Cognito standard attributes, no `UserProfiles`
+- Business tables: change user foreign key from integer to Cognito Sub UUID string
 
 ### 4. S3 (if file operations exist in monolith)
-- **Use Cases**:
-  - File uploads from users
-  - Generated files (PDFs, reports, images)
-
-**IMPORTANT**: Only add S3 if the monolith has explicit file handling code.
+- Only add if the monolith has explicit file handling code (uploads, PDF generation, etc.)
 
 ### 5. Cognito User Pool (if auth exists in monolith)
-- **Purpose**: Replace JWT-based or session-based authentication
-- **Configuration**: User attributes (email, name), password policy
-- **Auth Endpoints**: DELETE `/register`, `/login`, `/logout`, `/refresh-token` - clients call Cognito API directly
-- **Token Validation**: API Gateway uses Cognito Authorizer (no Lambda validation code)
-- **Post-Registration (optional)**:
-  - Use a Post-Confirmation Trigger Lambda **ONLY if** the monolith registration flow performs **business initialization**
-    (e.g., create cart/default settings/seed user-owned business records/send welcome email).
-  - If registration only creates credentials/tokens (and/or sets Cognito attributes like name/email) → **no trigger needed**.
+- Replaces JWT-based or session-based authentication
+- Auth endpoints (`/register`, `/login`, `/logout`, `/refresh-token`, `/me`) are DELETED — clients call Cognito API directly
+- Token validation done by API Gateway Cognito Authorizer, not Lambda code
+- Lambda receives pre-validated user identity: `event['requestContext']['authorizer']['claims']['sub']`
 
 ### 6. CloudWatch (always required)
-- **Log Groups**: One per Lambda function (retention: 7-30 days)
-- **Alarms**: Monitor critical metrics
-  - Lambda error rate > 1%
-  - API Gateway 4XX/5XX rate
-  - DynamoDB throttled requests
+- One Log Group per Lambda (retention: 7–30 days)
+- Alarms: Lambda error rate > 1%, API Gateway 4XX/5XX rate, DynamoDB throttled requests
+
+### 7. SQS Queues (if async point-to-point patterns identified)
+- Used when caller does NOT need callee's result and there is a single consumer
+- Always configure with a Dead-Letter Queue (DLQ) and `maxReceiveCount`
+- `VisibilityTimeout` must be ≥ consumer Lambda timeout
+
+### 8. EventBridge Rules (if fan-out patterns identified)
+- Used when one event triggers 2+ independent consumers across different domains
+- Semantic: "something happened" (event notification), not "do this task" (command)
+- Each consumer Lambda needs `AWS::Lambda::Permission` for EventBridge invocation
 
 ---
 
@@ -110,61 +117,39 @@ def lambda_handler(event, context):
 
 ### Rule 1: Preserve All Business Logic
 - Copy business logic from monolith exactly
-- Only change infrastructure layer:
-  - HTTP routing → API Gateway events
-  - Database calls → boto3 DynamoDB SDK
-  - Auth middleware → Cognito Authorizer
+- Only change infrastructure layer (HTTP routing → API Gateway, DB → DynamoDB SDK, auth middleware → Cognito Authorizer)
 
 ### Rule 2: Delete Infrastructure Code
-These files should NOT become Lambda functions:
-- `init_dynamodb.py`, `create_tables.py`, `setup_db.py`
-- Database migration scripts
-- Server startup scripts
-
-**Reason**: SAM template defines infrastructure (tables, indexes, etc.)
-
-**How to handle**:
-- Extract table schemas from these files(you can see these in analysis_report.json)
-- Define tables in SAM template's `AWS::DynamoDB::Table` resources
-- Add initial data via SAM template's `DynamoDB` custom resources or deployment scripts
+- `init_dynamodb.py`, `create_tables.py`, `setup_db.py`, migration scripts, server startup scripts
+- Extract table schemas from these files; define tables in SAM template resources
 
 ### Rule 3: Delete User Authentication Table
-- Identify the table storing user credentials (email, password hash)
-- Do NOT migrate this table to serverless
-- Do NOT create Lambda functions that write to this table
-
-**Exception (optional)**: If the user table also contains business profile data that your backend must own:
-- Split into two parts:
-  - Credentials → Cognito User Pool
-  - Business profile data → DynamoDB `UserProfiles` table
-
-**Note**: `name`/`email`/`phone` can be handled by Cognito standard attributes; don't create `UserProfiles` only for these.
+- Do NOT migrate the user credentials table to serverless
+- Exception: split business profile data into `UserProfiles` if the backend must own it
 
 ### Rule 4: Do Not Add Missing Features
-- If monolith has NO authentication → Do NOT add Cognito
-- If monolith has NO database → Do NOT add DynamoDB
-- If monolith has NO file storage → Do NOT add S3
-
-**Principle**: Migrate what exists, do not enhance
+- No auth in monolith → no Cognito
+- No database → no DynamoDB
+- No file storage → no S3
 
 ---
 
-## Blueprint JSON Structure
+## Blueprint JSON Schema
 
-The architecture blueprint should contain these sections.
-
-Below are two typical patterns to avoid treating `UserProfiles` and `post_confirmation` as mandatory.
+The Architect writes `blueprint.json` with exactly these sections.
+This example shows an application with both sync and async Lambda communication.
 
 ```json
 {
   "metadata": {
     "application_name": "MyApp",
-    "architecture_pattern": "Basic Serverless Architecture",
+    "architecture_pattern": "Event-Driven Serverless Architecture",
     "has_authentication": true,
     "has_database": true,
-    "has_file_storage": false
+    "has_file_storage": false,
+    "has_async_flows": true
   },
-  "communication_strategy": "sdk_direct_invocation",
+
   "lambda_functions": [
     {
       "name": "items-get-item",
@@ -173,41 +158,70 @@ Below are two typical patterns to avoid treating `UserProfiles` and `post_confir
       "handler": "handler.lambda_handler",
       "source_files": ["app/routes/items.py", "app/services/item_service.py"],
       "entry_points": ["GET /items/{id}"],
-      "environment_variables": {"ITEMS_TABLE": "${ItemsTable}"}
+      "environment_variables": {
+        "ITEMS_TABLE": "${ItemsTable}"
+      }
     },
     {
-      "name": "cart-delete-items",
-      "trigger_type": "internal",
+      "name": "order-checkout",
+      "trigger_type": "api",
       "runtime": "python3.11",
       "handler": "handler.lambda_handler",
-      "source_files": ["app/models/cart.py"],
-      "internal_path": "/internal/cart/delete-items",
-      "called_by": ["cart-checkout"],
-      "environment_variables": {"CART_TABLE": "${CartTable}"}
+      "source_files": ["app/routes/orders.py", "app/services/order_service.py"],
+      "entry_points": ["POST /orders/checkout"],
+      "publishes_to": [
+        {"type": "sqs", "target": "BestsellerUpdateQueue"},
+        {"type": "eventbridge", "source": "app.orders", "detail_type": "OrderCompleted"}
+      ],
+      "environment_variables": {
+        "ORDERS_TABLE": "${OrdersTable}",
+        "BESTSELLER_QUEUE_URL": "${BestsellerUpdateQueue}"
+      }
+    },
+    {
+      "name": "update-bestsellers",
+      "trigger_type": "sqs",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "sqs_source": "BestsellerUpdateQueue",
+      "source_files": ["utils/bestsellers.py"]
+    },
+    {
+      "name": "process-loyalty",
+      "trigger_type": "eventbridge",
+      "runtime": "python3.11",
+      "handler": "handler.lambda_handler",
+      "event_pattern": {"source": ["app.orders"], "detail-type": ["OrderCompleted"]},
+      "source_files": ["services/loyalty.py"]
     }
   ],
+
   "dynamodb_tables": [
     {
-      "logical_name": "Items",
-      "purpose": "Store application items/resources",
-      "schema_source_files": ["app/models/item.py"]
+      "logical_name": "Orders",
+      "purpose": "Store order records",
+      "partition_key": {"name": "orderId", "type": "S"},
+      "sort_key": {"name": "createdAt", "type": "S"},
+      "gsi": [
+        {
+          "index_name": "userId-index",
+          "partition_key": {"name": "userId", "type": "S"}
+        }
+      ]
     }
   ],
+
   "s3_buckets": [],
+
   "cognito": {
     "enabled": true,
     "user_pool_attributes": ["email", "name"],
     "password_policy": {
       "min_length": 8,
       "require_symbols": true
-    },
-    "triggers": {
-      "post_confirmation": {
-        "enabled": false,
-        "purpose": "Run post-signup business initialization (only if monolith requires it)"
-      }
     }
   },
+
   "api_gateway": {
     "type": "REST",
     "cors": {
@@ -216,92 +230,93 @@ Below are two typical patterns to avoid treating `UserProfiles` and `post_confir
     },
     "authorizer": "Cognito"
   },
-  "dropped_functions": [
+
+  "lambda_invoke_permissions": [
+    {"invoker": "booking-create", "target": "payments-charge"}
+  ],
+
+  "sqs_queues": [
     {
-      "name": "/register",
-      "reason": "Replaced by Cognito User Pool registration"
-    },
-    {
-      "name": "/login",
-      "reason": "Replaced by Cognito User Pool authentication"
-    },
-    {
-      "name": "init_dynamodb.py",
-      "reason": "Table creation handled by SAM template"
-    },
-    {
-      "name": "Users table (credentials)",
-      "reason": "User authentication moved to Cognito; credentials table deleted (UserProfiles only if backend needs extra business profile fields)"
+      "logical_name": "BestsellerUpdateQueue",
+      "purpose": "Async bestseller counter updates after checkout",
+      "dlq": true,
+      "visibility_timeout": 60,
+      "max_receive_count": 3
     }
+  ],
+
+  "eventbridge_rules": [
+    {
+      "name": "OrderCompletedRule",
+      "source": "app.orders",
+      "detail_type": "OrderCompleted",
+      "targets": ["process-loyalty", "send-notification"],
+      "description": "Fan-out: order completion triggers loyalty and notification"
+    }
+  ],
+
+  "dropped_functions": [
+    {"item": "POST /register", "type": "endpoint", "reason": "Replaced by Cognito User Pool registration"},
+    {"item": "POST /login", "type": "endpoint", "reason": "Replaced by Cognito User Pool authentication"},
+    {"item": "POST /logout", "type": "endpoint", "reason": "Replaced by Cognito User Pool sign-out"},
+    {"item": "verifyToken middleware", "type": "code", "reason": "Replaced by API Gateway Cognito Authorizer"},
+    {"item": "init_dynamodb.py", "type": "script", "reason": "Table creation handled by SAM template"},
+    {"item": "Users table", "type": "table", "reason": "User authentication moved to Cognito"}
   ]
 }
 ```
 
-## Common Mistakes to Avoid
+### Blueprint field notes
+
+- `metadata.architecture_pattern`: `"Basic Serverless Architecture"` if no async flows;
+  `"Event-Driven Serverless Architecture"` if `sqs_queues` or `eventbridge_rules` are non-empty
+- `metadata.has_async_flows`: `true` if `sqs_queues` or `eventbridge_rules` are non-empty
+- `dynamodb_tables`: Include EXACT schema (partition_key, sort_key, gsi) extracted from source files.
+  Attribute types: `"S"` (String), `"N"` (Number), `"B"` (Binary). Omit sort_key/gsi if not present.
+- `lambda_invoke_permissions`: Only for synchronous Lambda-to-Lambda calls (mechanism A).
+  Set to `[]` if no synchronous cross-Lambda calls.
+- `sqs_queues` / `eventbridge_rules`: Set to `[]` if no async patterns identified.
+- `dropped_functions`: Only if auth or infra code exists; items have `item`, `type`, `reason` fields.
+- Consumer Lambdas (`trigger_type: "sqs"` / `"eventbridge"`) do NOT have `entry_points`.
+- API Lambdas that publish async messages list targets in `publishes_to`.
+- `source_files` for each Lambda: derived from `entry_point_dependencies` in analysis_report.json
+  (handler file + all callee_module file paths).
+
+---
+
+## Common Mistakes
 
 ### Mistake 1: Keeping User Credentials Table
-**Wrong**:
-```yaml
-UsersTable:  # Contains email, password_hash, salt
-  Type: AWS::DynamoDB::Table
-  # ...
-```
-
-**Correct**:
-```yaml
-UserProfilesTable:  # Contains bio, preferences, avatar_url
-  Type: AWS::DynamoDB::Table
-  # ...
-```
+Delete the entire users table if it only stores auth artifacts. Cognito replaces it.
 
 ### Mistake 2: Creating Auth Lambda Functions
-**Wrong**:
-```yaml
-LoginFunction:
-  Type: AWS::Serverless::Function
-  # Validates credentials, returns JWT
-```
-
-**Correct**:
-```
-# No Lambda function needed
-# Client calls Cognito API directly:
-# - cognito-idp.InitiateAuth()
-```
+No Lambda for login/register/logout. Clients call Cognito API directly.
 
 ### Mistake 3: Creating Infrastructure Lambda
-**Wrong**:
-```yaml
-InitDynamoDBFunction:
-  Type: AWS::Serverless::Function
-  Events:
-    Api:
-      Type: Api
-      Path: /admin/init-db
-```
-
-**Correct**:
-```yaml
-# Use CloudFormation custom resource
-# Or use DynamoDB table initialization in SAM template
-```
+No Lambda for `init_dynamodb` or table setup. SAM template handles infrastructure.
 
 ### Mistake 4: Adding Features Not in Monolith
-**Wrong**: Monolith has no auth → Added Cognito anyway
-**Correct**: Monolith has no auth → No Cognito in serverless version
+If monolith has no auth → no Cognito. If no database → no DynamoDB. If no files → no S3.
+
+### Mistake 5: Calling Lambda via HTTP
+Do NOT use `requests.post(api_gateway_url)` to invoke another Lambda. Use SDK invoke, SQS, or EventBridge.
+
+---
 
 ## Summary
 
 **Key Rules**:
-1. Delete user credentials table (replaced by Cognito)
-2. Delete infrastructure scripts (replaced by SAM template)
-3. Delete auth endpoints (handled by Cognito)
-4. Preserve all business logic exactly
-5. Do not add features that don't exist in monolith
-6. **One BCU → one Lambda**: API BCUs = one (method+path); internal BCUs = non-trivial multi-step logic called by 2+ Lambdas; scheduled BCUs = periodic jobs not handled by native AWS; group by domain at folder level only
+1. One (HTTP method + path) = one Lambda function
+2. Delete user credentials table → Cognito
+3. Delete infrastructure scripts → SAM template
+4. Delete auth endpoints → Cognito handles them
+5. Preserve all business logic exactly
+6. Do not add features that don't exist in monolith
+7. Cross-Lambda communication: sync invoke OR SQS OR EventBridge (decided per-relationship via call graph analysis)
 
 **Success Criteria**:
 - All monolith API endpoints work in serverless
 - Data is correctly stored and retrieved
 - Authentication works (if it existed in monolith)
 - Business logic produces same results as monolith
+- Async workflows correctly decouple fire-and-forget operations

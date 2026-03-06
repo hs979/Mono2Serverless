@@ -54,26 +54,39 @@ tasks:
         - You MAY keep the monolith’s logical grouping (e.g., orders, products, users, admin) if it exists.
         - If the monolith is flat or ambiguous, choose a reasonable domain grouping (e.g., core, misc) and document it in blueprint metadata/notes.
       ============================================================
-      LAMBDA COMMUNICATION STRATEGY
+      LAMBDA COMMUNICATION STRATEGY (Sync + Async)
       ============================================================
       
-      ALL Lambda-to-Lambda calls use AWS SDK Direct Invocation.
+      Lambda-to-Lambda communication uses one of three mechanisms,
+      decided per-relationship based on entry_point_dependencies:
       
+        A) SYNCHRONOUS — AWS SDK Direct Invoke (RequestResponse)
+           Use when: caller NEEDS callee's return value for its own HTTP response
+           Implementation: boto3 lambda.invoke(InvocationType='RequestResponse')
+           Record in: lambda_invoke_permissions
+        
+        B) ASYNC — SQS Queue (Point-to-Point)
+           Use when: caller does NOT need callee's result; single consumer
+           Implementation: caller sends SQS message; callee becomes SQS-triggered Lambda
+           Record in: sqs_queues + caller's publishes_to + consumer Lambda definition
+        
+        C) ASYNC — EventBridge (Fan-Out / Event Chain)
+           Use when: one action triggers 2+ independent consumers across domains
+           OR: cross-domain workflow chain (A completes → event → B starts)
+           Implementation: caller publishes event; consumers triggered by EventBridge rules
+           Record in: eventbridge_rules + caller's publishes_to + consumer Lambda definitions
+      
+      General rules:
       - Do NOT use HTTP fetch/requests/axios to call another Lambda via API Gateway URL
-      - Use boto3 lambda.invoke(FunctionName=..., InvocationType=..., Payload=...)
-      - Choose InvocationType based on whether the caller needs the result:
-        - "RequestResponse" -> synchronous, caller waits for the response
-        - "Event"           -> asynchronous fire-and-forget, caller does not wait
-      - Pass target FunctionName to the invoker Lambda via environment variable
-        (e.g., NOTIFY_BOOKING_FUNCTION_NAME: !Ref NotifyBookingFunction)
-      - Record every invoker->target pair in blueprint lambda_invoke_permissions
-      - The invoker Lambda MUST have LambdaInvokePolicy in SAM template pointing to the target
+      - Pass target FunctionName / QueueUrl / EventBusName via environment variables
+      - Invoker Lambda MUST have the corresponding SAM policy
+        (LambdaInvokePolicy / SQSSendMessagePolicy / EventBridgePutEventsPolicy)
       
       ============================================================
-      CALL GRAPH DATA (from static analysis — NEW)
+      CALL GRAPH DATA (from static analysis)
       ============================================================
       
-      analysis_report.json now includes TWO pre-computed call graph fields
+      analysis_report.json includes pre-computed call graph fields
       extracted mechanically (AST for Python, regex for JS), NOT LLM-inferred:
       
       1. "call_graph": Raw cross-file function call edges.
@@ -82,21 +95,47 @@ tasks:
       
       2. "entry_point_dependencies": Aggregated view per HTTP entry_point.
          For each entry_point, lists ALL cross-file functions it calls.
-         This is your PRIMARY source for identifying Lambda-to-Lambda calls.
+         This is your PRIMARY data source for all Lambda communication design.
       
-      HOW TO USE entry_point_dependencies for lambda_invoke_permissions:
-      - If entry_point A's handler calls functions from modules that serve
-        OTHER entry_points, those cross-module calls become Lambda-to-Lambda
-        invocations in serverless.
-      - Example: POST /bookings calls CatalogService.reserve_flight_seat
-        (from services.catalog). POST /flights/{id}/reserve also calls
-        CatalogService.reserve_flight_seat (same module).
-        → In serverless: bookings-create Lambda invokes flights-reserve-seat.
-      - If an entry_point only calls functions from its OWN module or
+      STEP-BY-STEP PROCEDURE:
+      
+      Step 1 — IDENTIFY cross-Lambda calls:
+        For each entry in entry_point_dependencies, check if its cross_file_calls
+        reference modules that serve OTHER entry_points. If yes, this is a
+        cross-Lambda relationship.
+        If an entry_point only calls functions from its OWN module or
         utility helpers (db clients, validators), it is a simple "Worker"
         Lambda with NO cross-Lambda invocations.
-      - If an entry_point calls functions across MULTIPLE service modules,
-        it is likely an "Orchestrator" Lambda that invokes other Lambdas.
+      
+      Step 2 — CLASSIFY each cross-Lambda relationship:
+        For each relationship, determine the communication mechanism:
+        Q1: Does the caller need the callee's return value for its HTTP response?
+          YES → Synchronous (mechanism A) → record in lambda_invoke_permissions
+          NO  → Q2
+        Q2: Does this caller trigger operations in 2+ different service domains?
+          YES → EventBridge (mechanism C) → record in eventbridge_rules
+          NO  → SQS (mechanism B) → record in sqs_queues
+      
+      Step 3 — DESIGN async resources:
+        For SQS candidates:
+          - Create sqs_queues entry (with DLQ, visibility_timeout, max_receive_count)
+          - API Lambda: add publishes_to [{type: "sqs", target: "<QueueName>"}]
+          - Consumer Lambda: set trigger_type="sqs", sqs_source="<QueueName>"
+          - Consumer Lambda source_files = callee module files
+        For EventBridge candidates:
+          - Create eventbridge_rules entry (with source, detail_type, targets list)
+          - API Lambda: add publishes_to [{type: "eventbridge", source, detail_type}]
+          - Consumer Lambdas: set trigger_type="eventbridge", event_pattern={...}
+          - Consumer Lambda source_files = callee module files
+      
+      Step 4 — HANDLE edge cases:
+        - If entry_point_dependencies is empty → all Lambdas are independent workers
+          → set sqs_queues=[], eventbridge_rules=[], lambda_invoke_permissions=[]
+        - If ALL cross-Lambda calls need synchronous results → no async needed
+          → set sqs_queues=[], eventbridge_rules=[]
+        - Consumer Lambdas (trigger_type="sqs"/"eventbridge") do NOT have entry_points
+          (they are not API-triggered)
+        - Consumer Lambdas still need a handler, runtime, and source_files
       
       IMPORTANT: You do NOT need to use ReadFileTool to read source files
       for understanding call relationships. The call_graph data provides
@@ -107,13 +146,6 @@ tasks:
       From entry_point_dependencies, collect the handler file plus all
       callee_module file paths. This gives Code Developer the exact file
       list to read, without further exploration.
-      
-      Identification Step (do this during blueprint design):
-      Use the "entry_point_dependencies" field from analysis_report.json to
-      identify ALL cross-Lambda call relationships. For each entry_point that
-      calls functions belonging to OTHER entry_points' service domains, create
-      an invoker->target pair in lambda_invoke_permissions.
-      Set lambda_invoke_permissions to [] if no entry_point has cross-domain calls.
       
       ============================================================
       RULE 1: "DELETE, DON'T MIGRATE" - Auth Endpoints
@@ -163,10 +195,12 @@ tasks:
         Put this structure directly into blueprint.json dynamodb_tables (see OUTPUT section).
         Then apply the migration strategy below.
 
-      Users Table: DELETE entirely
-      - All user authentication data -> Cognito User Pool manages it
-      - Do NOT create UserProfiles table or any DynamoDB table for user data
-      - Do NOT migrate any user credential fields (email, password, tokens) to DynamoDB
+      Users Table Decision (three cases):
+      a) Only credentials (password/hash/salt/tokens) → DELETE entire table (Cognito replaces it)
+      b) Also has business profile data (avatar, preferences, address) → split:
+         credentials → Cognito; business fields → DynamoDB UserProfiles table
+      c) Only name/email/phone beyond credentials → use Cognito standard attributes, no UserProfiles
+      - Do NOT migrate any user credential fields (email as login, password, tokens) to DynamoDB
       - Business tables that previously referenced integer user_id -> use Cognito Sub (UUID string) as foreign key
 
       Business Tables (Orders, Products, etc.):
@@ -231,10 +265,12 @@ tasks:
       
       1. metadata:
          - application_name: Extract from analysis_report
-         - architecture_pattern: "Basic Serverless Architecture"
+         - architecture_pattern: "Basic Serverless Architecture" or "Event-Driven Serverless Architecture"
+           (use Event-Driven if sqs_queues or eventbridge_rules are non-empty)
          - has_authentication: true/false (based on features)
          - has_database: true/false (based on dynamodb_info.used)
          - has_file_storage: true/false (based on features)
+         - has_async_flows: true/false (true if sqs_queues or eventbridge_rules are non-empty)
       
       2. lambda_functions: Array of Lambda definitions
          Note (STRICT): ONE API endpoint (method+path) = ONE Lambda.
@@ -244,18 +280,58 @@ tasks:
                - Start with the entry_point's handler file
                - Add files corresponding to callee_modules in its cross_file_calls
                - This ensures Code Developer gets the complete, precise file list
+         
+         trigger_type values: "api" | "internal" | "sqs" | "eventbridge"
+           - "api": HTTP endpoint, triggered by API Gateway (has entry_points)
+           - "internal": Called by other Lambdas via SDK invoke
+           - "sqs": Triggered by SQS queue (has sqs_source, NO entry_points)
+           - "eventbridge": Triggered by EventBridge rule (has event_pattern, NO entry_points)
+         
+         API Lambda example:
          [
            {
              "name": "items-get-item",
+             "trigger_type": "api",
              "runtime": "python3.11",
              "handler": "handler.lambda_handler",
              "source_files": ["app/routes/items.py", "app/services/item_service.py"],
-             "entry_points": ["/items/{id}"],
+             "entry_points": ["GET /items/{id}"],
              "environment_variables": {
                "ITEMS_TABLE": "${ItemsTable}"
              }
            }
          ]
+         
+         API Lambda with async publishing:
+           {
+             "name": "order-checkout",
+             "trigger_type": "api",
+             "entry_points": ["POST /orders/checkout"],
+             "publishes_to": [
+               {"type": "sqs", "target": "BestsellerUpdateQueue"},
+               {"type": "eventbridge", "source": "app.orders", "detail_type": "OrderCompleted"}
+             ],
+             "environment_variables": {
+               "ORDERS_TABLE": "${OrdersTable}",
+               "BESTSELLER_QUEUE_URL": "${BestsellerUpdateQueue}"
+             }
+           }
+         
+         SQS consumer Lambda:
+           {
+             "name": "update-bestsellers",
+             "trigger_type": "sqs",
+             "sqs_source": "BestsellerUpdateQueue",
+             "source_files": ["utils/bestsellers.js"]
+           }
+         
+         EventBridge consumer Lambda:
+           {
+             "name": "process-loyalty",
+             "trigger_type": "eventbridge",
+             "event_pattern": {"source": ["app.orders"], "detail-type": ["OrderCompleted"]},
+             "source_files": ["services/loyalty.py"]
+           }
       
       3. dynamodb_tables: Array of table definitions (empty if no database)
          CRITICAL: Include EXACT schema extracted from source files - no schema_source_files field.
@@ -299,15 +375,38 @@ tasks:
            "authorizer": "Cognito" or "None"
          }
       
-      7. lambda_invoke_permissions: Cross-Lambda IAM permission map (empty if no Lambda-to-Lambda calls)
-         Identify ALL cross-Lambda call relationships and list every invoker->target pair.
+      7. lambda_invoke_permissions: Cross-Lambda SYNCHRONOUS invocation map
+         Only for mechanism A (synchronous invoke where caller needs return value).
          [
-           {"invoker": "booking-create", "target": "loyalty-add-points"},
-           {"invoker": "order-confirm",  "target": "notification-send"}
+           {"invoker": "booking-create", "target": "payments-charge"}
          ]
-         Set to [] if no Lambda calls another Lambda.
+         Set to [] if no synchronous Lambda-to-Lambda calls exist.
       
-      8. dropped_functions: List of dropped items
+      8. sqs_queues: Array of SQS queue definitions (empty if no async point-to-point patterns)
+         [
+           {
+             "logical_name": "BestsellerUpdateQueue",
+             "purpose": "Async bestseller counter updates after checkout",
+             "dlq": true,
+             "visibility_timeout": 60,
+             "max_receive_count": 3
+           }
+         ]
+         Set to [] if no SQS patterns identified.
+      
+      9. eventbridge_rules: Array of EventBridge rule definitions (empty if no fan-out patterns)
+         [
+           {
+             "name": "OrderCompletedRule",
+             "source": "app.orders",
+             "detail_type": "OrderCompleted",
+             "targets": ["process-loyalty", "send-notification"],
+             "description": "Fan-out: order completion triggers loyalty and notification"
+           }
+         ]
+         Set to [] if no EventBridge patterns identified.
+      
+      10. dropped_functions: List of dropped items
          [
            {
              "item": "POST /register",
@@ -352,11 +451,15 @@ tasks:
       
       Before finalizing blueprint, verify "Infrastructure over Code" principles:
       
-      - lambda_invoke_permissions is present: every invoker->target pair is listed; set [] if none
-      - Every invoker Lambda has the target FunctionName in its environment_variables
+      - lambda_invoke_permissions is present: every synchronous invoker->target pair is listed; set [] if none
+      - sqs_queues is present: set [] if no async point-to-point patterns
+      - eventbridge_rules is present: set [] if no fan-out patterns
+      - Every invoker Lambda has the target FunctionName / QueueUrl / EventBusName in its environment_variables
+      - Every SQS consumer Lambda has trigger_type="sqs" and sqs_source
+      - Every EventBridge consumer Lambda has trigger_type="eventbridge" and event_pattern
       - All entry_points are accounted for (either in Lambda or dropped_functions)
-      - Auth endpoints (/register, /login, /logout, /refresh, /me) are DROPPED (not migrated to Lambda)
-      - Users table is DELETED entirely - no UserProfiles table created
+      - Auth endpoints (/register, /login, /logout, /refresh-token, /reset-password, /me) are DROPPED (not migrated to Lambda)
+      - Users table is handled per decision rule (delete if only credentials; split if has business profile data)
       - No post_confirmation trigger or Cognito-triggered Lambda in blueprint
       - Auth middleware/decorators are DROPPED (token validation at API Gateway, not Lambda)
       - Infrastructure scripts are dropped with proper reason
@@ -376,8 +479,9 @@ tasks:
       to generate working infrastructure.
     expected_output: |
       A complete blueprint.json at storage/blueprint.json with all sections populated:
-      metadata, lambda_functions, lambda_invoke_permissions, dynamodb_tables,
-      s3_buckets, cognito, api_gateway, dropped_functions.
+      metadata, lambda_functions, lambda_invoke_permissions, sqs_queues,
+      eventbridge_rules, dynamodb_tables, s3_buckets, cognito, api_gateway,
+      dropped_functions.
       
       Must preserve all monolith functionality and follow architecture principles.
 
@@ -436,7 +540,7 @@ tasks:
       If a Lambda function's primary role is to coordinate a workflow (e.g., create_booking calling flight/payment services):
       
       1. PURE ORCHESTRATION: 
-         - It must ONLY invoke other Lambdas using boto3/aws-sdk.
+         - It must ONLY invoke other Lambdas via SDK invoke, SQS send_message, or EventBridge put_events.
          - It must NOT contain local business logic implementation (e.g., do not write reserve_flight() locally).
          - It must NOT access the database directly for steps handled by other Lambdas.
          
@@ -490,24 +594,12 @@ tasks:
       
       If no shared code is needed, skip this step entirely (do NOT create empty layer dirs).
       
-      Step 1.4: AWS SDK Invoke for Lambda-to-Lambda Calls
+      Step 1.4: Cross-Lambda Communication Code
       
-      ALL Lambda-to-Lambda calls use AWS SDK invoke. Choose InvocationType based on whether
-      the caller needs the result. For each entry in blueprint.lambda_invoke_permissions,
-      add the corresponding invoke call in the INVOKER Lambda:
+      There are THREE communication mechanisms. Use the one matching the blueprint:
       
-        Async (fire-and-forget, caller does NOT need result):
-        ```python
-        import boto3, json, os
-        lambda_client = boto3.client('lambda')
-        lambda_client.invoke(
-            FunctionName=os.environ['NOTIFY_BOOKING_FUNCTION_NAME'],
-            InvocationType='Event',
-            Payload=json.dumps({'userId': user_id, 'bookingId': booking_id})
-        )
-        ```
-      
-        Synchronous (caller WAITS for result):
+        A) SYNCHRONOUS INVOKE (for entries in blueprint.lambda_invoke_permissions):
+        Caller NEEDS the callee's return value for its own HTTP response.
         ```python
         import boto3, json, os
         lambda_client = boto3.client('lambda')
@@ -519,16 +611,39 @@ tasks:
         result = json.loads(response['Payload'].read())
         ```
       
-      - The CONSUMER Lambda receives the payload directly in event.
+        B) SQS PUBLISH (for API Lambdas with publishes_to type="sqs"):
+        Fire-and-forget: caller does NOT need result. Queue URL from env var.
+        ```python
+        import boto3, json, os
+        sqs = boto3.client('sqs')
+        sqs.send_message(
+            QueueUrl=os.environ['BESTSELLER_QUEUE_URL'],
+            MessageBody=json.dumps({'orderId': order_id, 'books': purchased_books})
+        )
+        ```
+      
+        C) EVENTBRIDGE PUBLISH (for API Lambdas with publishes_to type="eventbridge"):
+        Event notification: one or more consumers react independently.
+        ```python
+        import boto3, json
+        events = boto3.client('events')
+        events.put_events(Entries=[{
+            'Source': 'app.orders',
+            'DetailType': 'OrderCompleted',
+            'Detail': json.dumps({'orderId': order_id, 'userId': user_id})
+        }])
+        ```
+      
       - Do NOT use HTTP fetch/axios/requests to call another Lambda via API Gateway URL.
-      - The SAM engineer will add the required IAM LambdaInvokePolicy based on lambda_invoke_permissions.
+      - Do NOT use lambda.invoke(InvocationType='Event') — use SQS or EventBridge for async.
+      - The SAM engineer will add the required IAM policies based on the blueprint.
       
       Step 1.5: Dependencies & Configuration
       - REFERENCE analysis_report.json (specifically dependency_graph) and scan source code import/require statements to determine dependencies.
       - Do NOT include dependencies already provided by the shared layer (if created).
       - For Python Lambdas:
         - Create output/lambdas/{lambda_name}/requirements.txt.
-        - MUST include boto3 and any 3rd-party libraries found in the monolith's requirements that are used by this function.
+        - boto3 is pre-installed in Lambda Python runtimes; only include it if you need to pin a specific version. Include any 3rd-party libraries from the monolith's requirements that are used by this function.
       - For Node.js Lambdas:
         - Create output/lambdas/{lambda_name}/package.json.
         - DO NOT create requirements.txt.
@@ -562,8 +677,18 @@ tasks:
       3. MAINTAIN DIRECTORY STRUCTURE as shown above
       4. ENSURE CONSISTENCY - all references between files must work
       5. USE ENVIRONMENT VARIABLES - no hardcoded values
-      6. DO NOT generate Step Functions, SQS handlers, SNS handlers, or EventBridge rules
-      7. Focus on basic serverless architecture: Lambda + API Gateway + DynamoDB/S3
+      6. For SQS-triggered Lambdas (trigger_type="sqs" in blueprint):
+         - Handler receives event['Records'], iterate and parse record['body']
+         - No API Gateway response format needed (no statusCode/headers/body wrapper)
+         - Use batch item failure reporting for partial failures
+      7. For EventBridge-triggered Lambdas (trigger_type="eventbridge" in blueprint):
+         - Handler receives event['detail'] directly
+         - No API Gateway response format needed
+      8. For API Lambdas with publishes_to in blueprint:
+         - Replace direct function calls with SQS send_message or EventBridge put_events
+         - Return HTTP response BEFORE async processing (the message/event IS the handoff)
+         - Queue URL / Event Bus name from environment variables (os.environ[...])
+      9. DO NOT generate Step Functions, SNS handlers, or any services not in the blueprint
       
       CRITICAL: YOU ARE A CODE DEVELOPER, NOT AN INFRASTRUCTURE ENGINEER!
       
@@ -615,7 +740,10 @@ tasks:
         * metadata.has_authentication  (bool)
         * metadata.has_database        (bool)
         * metadata.has_file_storage    (bool)
+        * metadata.has_async_flows     (bool)
         * dynamodb_tables[]            (partition_key, sort_key, gsi)
+        * sqs_queues[]                 (logical_name, dlq, visibility_timeout, max_receive_count)
+        * eventbridge_rules[]          (name, source, detail_type, targets)
         * s3_buckets[]
         * cognito                      (enabled, userPoolName, etc.)
         * api_gateway                  (cors, authorizer)
@@ -688,7 +816,43 @@ tasks:
         ```
         If output/layers/shared/ does NOT exist -> skip this section entirely.
 
-      Section G — Metadata comment for next task:
+      Section H — SQS Queues (only if blueprint.sqs_queues is non-empty):
+        For each entry in blueprint.sqs_queues:
+        - One AWS::SQS::Queue with VisibilityTimeout from blueprint
+        - One DLQ (AWS::SQS::Queue) if dlq=true in blueprint
+        - Configure RedrivePolicy: deadLetterTargetArn + maxReceiveCount from blueprint
+        ```yaml
+        <LogicalName>:
+          Type: AWS::SQS::Queue
+          Properties:
+            QueueName: !Sub '${AWS::StackName}-<kebab-name>'
+            VisibilityTimeout: <from blueprint>
+            RedrivePolicy:
+              deadLetterTargetArn: !GetAtt <LogicalName>DLQ.Arn
+              maxReceiveCount: <from blueprint>
+        <LogicalName>DLQ:
+          Type: AWS::SQS::Queue
+          Properties:
+            QueueName: !Sub '${AWS::StackName}-<kebab-name>-dlq'
+        ```
+        If blueprint.sqs_queues is empty -> skip this section entirely.
+
+      Section I — EventBridge Rules (only if blueprint.eventbridge_rules is non-empty):
+        For each entry in blueprint.eventbridge_rules:
+        - One AWS::Events::Rule with EventPattern from blueprint (source + detail-type)
+        - Do NOT add Targets or AWS::Lambda::Permission here — those reference
+          Lambda functions defined in the next task. The assembly task will wire them.
+        ```yaml
+        <RuleName>:
+          Type: AWS::Events::Rule
+          Properties:
+            EventPattern:
+              source: ["<source>"]
+              detail-type: ["<detail_type>"]
+        ```
+        If blueprint.eventbridge_rules is empty -> skip this section entirely.
+
+      Section J — Metadata comment for next task:
         At the very end of the file, append a YAML comment block so the assembly
         task knows what was included:
         ```yaml
@@ -696,11 +860,14 @@ tasks:
         # has_authentication: <true|false>
         # has_database: <true|false>
         # has_file_storage: <true|false>
+        # has_async_flows: <true|false>
         # has_shared_layer: <true|false>
         # runtime: <runtime>
         # lambda_invoke_permissions: <JSON array as inline comment>
         # cognito_user_pool_logical_name: <LogicalName or NONE>
         # dynamodb_table_logical_names: <comma-separated logical names or NONE>
+        # sqs_queue_logical_names: <comma-separated logical names or NONE>
+        # eventbridge_rule_names: <comma-separated rule names or NONE>
         # --- END METADATA ---
         ```
 
@@ -721,6 +888,8 @@ tasks:
       - DynamoDB tables (if applicable)
       - S3 buckets (if applicable)
       - SharedUtilsLayer declaration (if layers/shared/ exists on disk)
+      - SQS queues + DLQs (if blueprint.sqs_queues is non-empty)
+      - EventBridge rules + LambdaPermissions (if blueprint.eventbridge_rules is non-empty)
       - Metadata comment block for the assembly task
 
   - id: generate_functions_template
@@ -734,15 +903,29 @@ tasks:
       code — append to the file and move on.
 
       ============================================================
+      STEP 0: READ BLUEPRINT FOR TRIGGER MAPPING
+      ============================================================
+
+      Read storage/blueprint.json and extract ONLY:
+        * lambda_functions[] — for each entry, record: name, trigger_type,
+          sqs_source (if trigger_type="sqs"), event_pattern (if trigger_type="eventbridge"),
+          publishes_to (if present)
+      This tells you WHICH Lambda is SQS/EventBridge-triggered and WHICH queue/rule
+      it connects to. You CANNOT determine this from handler code alone.
+
+      ============================================================
       STEP 1: READ METADATA FROM PREVIOUS TASK
       ============================================================
 
       Read output/temp_shared_resources.yaml and extract from the
       "--- SHARED_RESOURCES_METADATA ---" comment block:
         * has_shared_layer (true/false)
+        * has_async_flows (true/false)
         * runtime
         * lambda_invoke_permissions (JSON array)
         * cognito_user_pool_logical_name
+        * sqs_queue_logical_names (comma-separated or NONE)
+        * eventbridge_rule_names (comma-separated or NONE)
 
       ============================================================
       STEP 2: DISCOVER ALL DOMAINS
@@ -766,11 +949,22 @@ tasks:
             (e.g., output/lambdas/bookings/bookings-create/ = one Lambda)
 
         3b. For EACH Lambda subdirectory inside this domain:
+            - Match this directory name against blueprint lambda_functions[].name
+              to find its trigger_type, sqs_source, event_pattern, and publishes_to.
             - Read handler.py (or handler.js) to find:
               * handler function name (default: lambda_handler)
               * ALL os.environ[...] or os.environ.get(...) keys -> env var list
-              * ALL boto3.client/resource calls -> IAM policy list
-              * Whether it calls lambda_client.invoke() -> needs LambdaInvokePolicy
+              * ALL boto3.client/resource calls -> IAM policy list:
+                - boto3.client('dynamodb') or boto3.resource('dynamodb') → DynamoDBCrudPolicy
+                - boto3.client('s3') → S3CrudPolicy
+                - boto3.client('lambda') + .invoke() → LambdaInvokePolicy
+                - boto3.client('sqs') + .send_message() → SQSSendMessagePolicy
+                - boto3.client('events') + .put_events() → EventBridgePutEventsPolicy
+            - Use trigger_type from blueprint (Step 0) to determine the Events block:
+              * trigger_type="api" → Api Event with Path/Method
+              * trigger_type="sqs" → SQS Event with Queue from sqs_source
+              * trigger_type="eventbridge" → NO Events block (Rule Target handles it)
+              * trigger_type="internal" → NO Events block
             - Read requirements.txt or package.json (if exists)
             - Derive the CodeUri as: lambdas/<domain>/<function-name>/
 
@@ -778,7 +972,7 @@ tasks:
             to output/temp_functions.yaml using WriteFileTool with append=True.
             This preserves previously written domains.
 
-      Lambda YAML format:
+      Lambda YAML format — API-triggered (trigger_type="api"):
         ```yaml
           <LogicalName>:
             Type: AWS::Serverless::Function
@@ -793,12 +987,17 @@ tasks:
                     TableName: !Ref <TableLogicalName>
                 - S3CrudPolicy:           # if handler reads/writes S3
                     BucketName: !Ref <BucketLogicalName>
-                - LambdaInvokePolicy:     # if this function invokes another Lambda
+                - LambdaInvokePolicy:     # if this function invokes another Lambda (sync)
                     FunctionName: !Ref <TargetFunctionLogicalName>
+                - SQSSendMessagePolicy:   # if handler sends SQS messages
+                    QueueName: !GetAtt <QueueLogicalName>.QueueName
+                - EventBridgePutEventsPolicy:  # if handler publishes EventBridge events
+                    EventBusName: default
               Environment:
                 Variables:
                   ENVIRONMENT: !Ref Environment
-                  TABLE_NAME: !Ref <TableLogicalName>   # all os.environ keys found
+                  TABLE_NAME: !Ref <TableLogicalName>
+                  <QUEUE_URL>: !Ref <QueueLogicalName>  # if publishes to SQS
                   <OTHER_ENV_KEYS>: <value or !Ref>
               Events:
                 Api:
@@ -809,6 +1008,58 @@ tasks:
                     Auth:
                       Authorizer: CognitoAuthorizer   # only if cognito enabled
         ```
+
+      Lambda YAML format — SQS-triggered (trigger_type="sqs"):
+        Use blueprint sqs_source to determine the QueueLogicalName.
+        ```yaml
+          <LogicalName>:
+            Type: AWS::Serverless::Function
+            Properties:
+              FunctionName: !Sub '${AWS::StackName}-<kebab-name>'
+              CodeUri: lambdas/<domain>/<function-dir>/
+              Handler: handler.<handler_function_name>
+              Layers:
+                - !Ref SharedUtilsLayer   # only if has_shared_layer == true
+              Policies:
+                - SQSPollerPolicy:
+                    QueueName: !GetAtt <QueueLogicalName>.QueueName
+                - DynamoDBCrudPolicy:     # if handler reads/writes DynamoDB
+                    TableName: !Ref <TableLogicalName>
+              Environment:
+                Variables:
+                  ENVIRONMENT: !Ref Environment
+                  <OTHER_ENV_KEYS>: <value or !Ref>
+              Events:
+                SQSEvent:
+                  Type: SQS
+                  Properties:
+                    Queue: !GetAtt <QueueLogicalName>.Arn
+                    BatchSize: 10
+        ```
+        NOTE: SQS-triggered Lambdas have NO Api Event. <QueueLogicalName> comes from
+        blueprint lambda_functions[].sqs_source (e.g. "BestsellerUpdateQueue").
+
+      Lambda YAML format — EventBridge-triggered (trigger_type="eventbridge"):
+        ```yaml
+          <LogicalName>:
+            Type: AWS::Serverless::Function
+            Properties:
+              FunctionName: !Sub '${AWS::StackName}-<kebab-name>'
+              CodeUri: lambdas/<domain>/<function-dir>/
+              Handler: handler.<handler_function_name>
+              Layers:
+                - !Ref SharedUtilsLayer   # only if has_shared_layer == true
+              Policies:
+                - DynamoDBCrudPolicy:     # if handler reads/writes DynamoDB
+                    TableName: !Ref <TableLogicalName>
+              Environment:
+                Variables:
+                  ENVIRONMENT: !Ref Environment
+                  <OTHER_ENV_KEYS>: <value or !Ref>
+        ```
+        NOTE: EventBridge-triggered Lambdas have NO Events block. The EventBridge Rule
+        Target (defined in temp_shared_resources.yaml) handles invocation.
+        Use blueprint lambda_functions[].event_pattern to verify the correct rule mapping.
 
       ============================================================
       STEP 4: HANDLE INTER-LAMBDA PERMISSIONS
@@ -866,10 +1117,14 @@ tasks:
 
       Read output/temp_shared_resources.yaml
         - Contains: header, Globals, Parameters, API Gateway, Cognito, DynamoDB,
-          S3, SharedUtilsLayer, and metadata comment.
+          S3, SharedUtilsLayer, EventBridge Rules (without Targets), and metadata comment.
 
       Read output/temp_functions.yaml
         - Contains: all Lambda function definitions and metadata comment.
+
+      Read storage/blueprint.json and extract ONLY eventbridge_rules[]
+        - Needed to wire EventBridge Rule Targets to the correct consumer Lambdas.
+        - Skip this read if metadata shows has_async_flows=false.
 
       ============================================================
       STEP 2: ASSEMBLE output/template.yaml
@@ -882,8 +1137,23 @@ tasks:
         3. Insert ALL shared infrastructure resources (API Gateway, Cognito, DynamoDB,
            S3, SharedUtilsLayer) from temp_shared_resources.yaml.
         4. Insert ALL Lambda function resources from temp_functions.yaml.
-        5. Close the Resources: section.
-        6. Add the Outputs: section:
+        5. WIRE EVENTBRIDGE TARGETS (only if EventBridge Rules exist):
+           For each rule in blueprint.eventbridge_rules, update the corresponding
+           AWS::Events::Rule resource (from step 3) to add Targets referencing the
+           consumer Lambda functions (now available from step 4):
+             Targets:
+               - Arn: !GetAtt <ConsumerLogicalName>.Arn
+                 Id: "<ConsumerName>"
+           Also add one AWS::Lambda::Permission per target:
+             <ConsumerName>EventPermission:
+               Type: AWS::Lambda::Permission
+               Properties:
+                 FunctionName: !Ref <ConsumerLogicalName>
+                 Action: lambda:InvokeFunction
+                 Principal: events.amazonaws.com
+                 SourceArn: !GetAtt <RuleName>.Arn
+        6. Close the Resources: section.
+        7. Add the Outputs: section:
            - ApiEndpoint: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod'
            - One output per DynamoDB table (TableName + Arn)
            - UserPoolId and UserPoolClientId (if Cognito enabled)
@@ -895,12 +1165,14 @@ tasks:
       STEP 3: VALIDATE
       ============================================================
 
-      Run SAMValidateTool on output/template.yaml.
+      Run SAMValidateTool with template_path="output/template.yaml".
+      The tool reads the file from disk — do NOT pass file content as an argument.
 
       If validation errors are found:
         - Analyze the error message carefully.
         - Fix ONLY the specific resource/property that caused the error.
-        - Re-run SAMValidateTool.
+        - Write the fixed template to output/template.yaml using WriteFileTool.
+        - Re-run SAMValidateTool with template_path="output/template.yaml".
         - Repeat until validation passes or no further fixes are possible.
 
       ============================================================
@@ -968,12 +1240,13 @@ tasks:
           Environment.Variables, Policies, Layers, and Events (Api Path + Method).
 
       1c. Read storage/blueprint.json ONCE and extract lambda_functions (as a
-          reference for expected endpoints) and lambda_invoke_permissions.
+          reference for expected endpoints), lambda_invoke_permissions,
+          sqs_queues, and eventbridge_rules.
 
       1d. Check if output/layers/shared/ exists on disk using FileListTool.
 
       ============================================================
-      STEP 2: CHECK — Run 7 consistency checks in 3 phases
+      STEP 2: CHECK — Run 9 consistency checks in 4 phases
       ============================================================
 
       Record every mismatch as a finding with:
@@ -1023,6 +1296,8 @@ tasks:
             must have DynamoDBCrudPolicy
           * boto3.client('s3') → must have S3CrudPolicy
           * boto3.client('lambda').invoke() → must have LambdaInvokePolicy
+          * boto3.client('sqs').send_message() → must have SQSSendMessagePolicy
+          * boto3.client('events').put_events() → must have EventBridgePutEventsPolicy
         - Severity: ERROR
 
       CHECK C6 — Layer Consistency
@@ -1042,6 +1317,29 @@ tasks:
           Api Event.
         - Severity: ERROR
 
+      --- Phase D: Async resource checks (only if blueprint has async flows) ---
+
+      CHECK C8 — SQS Resource Consistency
+        - For each sqs_queues entry in blueprint:
+            verify AWS::SQS::Queue exists in template.yaml
+        - For each Lambda with publishes_to containing SQS (in blueprint):
+            verify SQSSendMessagePolicy AND QUEUE_URL environment variable
+            exist in the Function's template definition
+        - For each Lambda with trigger_type="sqs" (in blueprint):
+            verify SQS Event source mapping exists in the Function's template
+        - Severity: ERROR
+
+      CHECK C9 — EventBridge Resource Consistency
+        - For each eventbridge_rules entry in blueprint:
+            verify AWS::Events::Rule exists in template.yaml
+        - For each rule target:
+            verify AWS::Lambda::Permission for EventBridge invocation exists
+        - For each Lambda with trigger_type="eventbridge" (in blueprint):
+            verify it appears as a Target in at least one EventBridge Rule
+        - For each Lambda with publishes_to containing EventBridge (in blueprint):
+            verify EventBridgePutEventsPolicy exists in the Function's template
+        - Severity: ERROR
+
       ============================================================
       STEP 3: FIX — Resolve all ERROR-level findings (one pass)
       ============================================================
@@ -1057,6 +1355,10 @@ tasks:
       - C5 (missing policy): Add the required SAM policy to Policies list.
       - C6 (layer mismatch): Add or remove SharedUtilsLayer references.
       - C7 (route mismatch): Fix the Api Event Path/Method in template.yaml.
+      - C8 (SQS mismatch): Add missing SQS queue, SQSSendMessagePolicy, QUEUE_URL
+        env var, or SQS Event source mapping to template.yaml.
+      - C9 (EventBridge mismatch): Add missing EventBridge rule, LambdaPermission,
+        EventBridgePutEventsPolicy, or rule target to template.yaml.
 
       After applying ALL fixes, write the updated template.yaml ONCE.
       If there are zero ERROR findings, skip this step entirely.
@@ -1065,8 +1367,9 @@ tasks:
       STEP 4: RE-VALIDATE
       ============================================================
 
-      Run SAMValidateTool on the template content.
-      If validation fails, fix the specific error and re-validate (up to 3 retries).
+      Run SAMValidateTool with template_path="output/template.yaml".
+      If validation fails, fix the specific error, write the updated template, and
+      re-validate (up to 3 retries).
       After validation passes (or after 3 retries), proceed to Step 5 regardless.
 
       ============================================================
@@ -1077,7 +1380,7 @@ tasks:
       ```json
       {
         "status": "PASS" or "FAIL",
-        "total_checks": 7,
+        "total_checks": 9,
         "findings": [
           {
             "check_id": "C1",
@@ -1089,7 +1392,7 @@ tasks:
         ],
         "fixes_applied": <count>,
         "sam_validation": "PASS" or "FAIL",
-        "summary": "All 7 checks passed after applying N fixes."
+        "summary": "All 9 checks passed after applying N fixes."
       }
       ```
 
@@ -1110,7 +1413,7 @@ tasks:
          content, not the template content.
     expected_output: |
       Consistency validation completed:
-      - All 7 cross-checks executed between output/lambdas/ and output/template.yaml
+      - All 9 cross-checks executed between output/lambdas/ and output/template.yaml
       - All ERROR-level mismatches fixed
       - output/template.yaml re-validated with SAMValidateTool
       - output/consistency_report.json generated with full findings and fix details

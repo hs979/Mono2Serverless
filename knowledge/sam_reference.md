@@ -278,6 +278,77 @@ ApiLogGroup:
           AllowedHeaders: ["*"]
 ```
 
+### SQS Queue Pattern (with Dead-Letter Queue)
+
+```yaml
+<QueueLogicalName>:
+  Type: AWS::SQS::Queue
+  Properties:
+    QueueName: !Sub '${AWS::StackName}-<kebab-name>'
+    VisibilityTimeout: 60
+    RedrivePolicy:
+      deadLetterTargetArn: !GetAtt <QueueLogicalName>DLQ.Arn
+      maxReceiveCount: 3
+
+<QueueLogicalName>DLQ:
+  Type: AWS::SQS::Queue
+  Properties:
+    QueueName: !Sub '${AWS::StackName}-<kebab-name>-dlq'
+```
+
+**Key rules**:
+- `VisibilityTimeout` must be ≥ consumer Lambda Timeout (default: 60s)
+- Always define a DLQ with `maxReceiveCount` to prevent poison messages
+- Consumer Lambda uses SQS Event source; producer Lambda uses `SQSSendMessagePolicy`
+
+### SQS-Triggered Lambda Pattern
+
+```yaml
+<ConsumerFunction>:
+  Type: AWS::Serverless::Function
+  Properties:
+    CodeUri: lambdas/<domain>/<function-dir>/
+    Handler: handler.lambda_handler
+    Policies:
+      - SQSPollerPolicy:
+          QueueName: !GetAtt <QueueLogicalName>.QueueName
+    Events:
+      SQSEvent:
+        Type: SQS
+        Properties:
+          Queue: !GetAtt <QueueLogicalName>.Arn
+          BatchSize: 10
+```
+
+### EventBridge Rule Pattern
+
+```yaml
+<RuleName>:
+  Type: AWS::Events::Rule
+  Properties:
+    EventPattern:
+      source:
+        - "<event-source>"
+      detail-type:
+        - "<detail-type>"
+    Targets:
+      - Arn: !GetAtt <ConsumerFunction>.Arn
+        Id: "<ConsumerName>"
+
+<ConsumerName>EventPermission:
+  Type: AWS::Lambda::Permission
+  Properties:
+    FunctionName: !Ref <ConsumerFunction>
+    Action: lambda:InvokeFunction
+    Principal: events.amazonaws.com
+    SourceArn: !GetAtt <RuleName>.Arn
+```
+
+**Key rules**:
+- Each consumer Lambda in a rule's Targets needs its own `AWS::Lambda::Permission`
+- EventBridge-triggered Lambdas have NO `Events` block — the Rule Target handles invocation
+- Producer Lambda needs `EventBridgePutEventsPolicy` and reads event bus from env var
+
 ## 3. Monitoring Patterns
 
 ### CloudWatch Alarms
@@ -439,7 +510,7 @@ PostConfirmationFunction:
   Type: AWS::Serverless::Function
   Properties:
     CodeUri: lambdas/PostConfirmationFunction/
-    Handler: handler.lambda_handler
+    Handler: handler.handler
     Runtime: nodejs20.x
     Events:
       PostConfirmationTrigger:
@@ -516,10 +587,27 @@ Outputs:
   ```
 
 #### Compute
-- `LambdaInvokePolicy` - Invoke other Lambda functions
+- `LambdaInvokePolicy` - Invoke other Lambda functions (synchronous)
   ```yaml
   - LambdaInvokePolicy:
       FunctionName: !Ref AnotherFunction
+  ```
+
+#### Messaging (SQS / EventBridge)
+- `SQSSendMessagePolicy` - Send messages to an SQS queue (for producer Lambdas)
+  ```yaml
+  - SQSSendMessagePolicy:
+      QueueName: !GetAtt MyQueue.QueueName
+  ```
+- `SQSPollerPolicy` - Poll and consume messages from an SQS queue (for consumer Lambdas)
+  ```yaml
+  - SQSPollerPolicy:
+      QueueName: !GetAtt MyQueue.QueueName
+  ```
+- `EventBridgePutEventsPolicy` - Publish events to EventBridge (for producer Lambdas)
+  ```yaml
+  - EventBridgePutEventsPolicy:
+      EventBusName: default
   ```
 
 #### Security
@@ -685,13 +773,21 @@ Policies:
   - S3CrudPolicy:
       BucketName: !Ref MyBucket
   
-  # Lambda Invocation
+  # Lambda Invocation (synchronous)
   - LambdaInvokePolicy:
       FunctionName: !Ref AnotherFunction
   
-  # Secrets Manager Read
-  - AWSSecretsManagerGetSecretValuePolicy:
-      SecretArn: !Ref MySecret
+  # SQS — producer sends messages
+  - SQSSendMessagePolicy:
+      QueueName: !GetAtt MyQueue.QueueName
+  
+  # SQS — consumer polls messages
+  - SQSPollerPolicy:
+      QueueName: !GetAtt MyQueue.QueueName
+  
+  # EventBridge — producer publishes events
+  - EventBridgePutEventsPolicy:
+      EventBusName: default
 ```
 
 ### Policy Decision Tree
@@ -701,6 +797,10 @@ Need to access AWS resources?
 ├─ Yes → Use SAM Policy Template (Recommended)
 │   ├─ DynamoDB → DynamoDBCrudPolicy
 │   ├─ S3 → S3CrudPolicy
+│   ├─ Lambda invoke → LambdaInvokePolicy
+│   ├─ SQS send → SQSSendMessagePolicy
+│   ├─ SQS consume → SQSPollerPolicy
+│   ├─ EventBridge publish → EventBridgePutEventsPolicy
 │   └─ Others → Check list above
 │
 ├─ Need custom permissions? → Inline IAM Policy

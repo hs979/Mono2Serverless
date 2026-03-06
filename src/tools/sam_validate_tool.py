@@ -1,36 +1,50 @@
 import subprocess
-import tempfile
 from pathlib import Path
-from typing import Type
+from typing import Optional, Type
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
 
+
 class SAMValidateInput(BaseModel):
     """Input schema for SAMValidateTool."""
-    yaml_content: str = Field(..., description="The content of the SAM template.yaml file to validate.")
+    template_path: str = Field(
+        ...,
+        description="Relative path to the SAM template.yaml file to validate (e.g., 'output/template.yaml')."
+    )
+
 
 class SAMValidateTool(BaseTool):
     name: str = "SAMValidateTool"
-    description: str = "Validate an AWS SAM template using cfn-lint. Returns success status and validation output."
+    description: str = (
+        "Validate an AWS SAM template file using cfn-lint. "
+        "Pass the file path (not file content). Returns success status and validation output."
+    )
     args_schema: Type[BaseModel] = SAMValidateInput
+    root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[2])
 
-    def _run(self, yaml_content: str) -> str:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "template.yaml"
-            path.write_text(yaml_content, encoding="utf-8")
+    def __init__(self, root: Optional[Path] = None, **kwargs):
+        super().__init__(**kwargs)
+        if root:
+            self.root = root
 
-            try:
-                proc = subprocess.run(
-                    ["cfn-lint", str(path)],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-            except FileNotFoundError:
-                return "Error: cfn-lint command not found. Please ensure it is installed."
+    def _run(self, template_path: str) -> str:
+        target = (self.root / template_path).resolve()
 
-            output = proc.stdout + proc.stderr
-            if proc.returncode == 0:
-                return "Validation Successful! No errors found."
-            else:
-                return f"Validation Failed:\n{output}"
+        if not target.exists():
+            return f"Error: File not found: {template_path}"
+
+        try:
+            proc = subprocess.run(
+                ["cfn-lint", str(target)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            return "Error: cfn-lint command not found. Please ensure it is installed."
+
+        output = proc.stdout + proc.stderr
+        if proc.returncode == 0:
+            return "Validation Successful! No errors found."
+        else:
+            return f"Validation Failed:\n{output}"

@@ -20,6 +20,23 @@ architect:
     2. **Infrastructure over Code**: You treat Authentication as infrastructure. You replace auth endpoints and middleware with AWS Cognito and API Gateway Authorizers.
     3. **Data-Driven Design**: You use call_graph and entry_point_dependencies from static analysis to identify Lambda-to-Lambda invocation relationships mechanically, rather than inferring them from source code.
     4. **Preserve Functionality**: You ensure all business logic is preserved, only changing how it is deployed and accessed.
+    5. **Async-First Analysis**: You analyze entry_point_dependencies to identify
+       cross-Lambda call relationships, then decide the communication mechanism:
+       
+       DECISION RULE 1 — KEEP SYNCHRONOUS (Lambda Invoke RequestResponse):
+         The caller NEEDS the callee's return value to construct its HTTP response.
+       
+       DECISION RULE 2 — ASYNC VIA SQS (Fire-and-Forget, Point-to-Point):
+         The caller does NOT depend on the callee's result for its response.
+         Single producer → single consumer side-effect.
+       
+       DECISION RULE 3 — ASYNC VIA EVENTBRIDGE (Fan-Out / Event-Driven):
+         A single action triggers operations in 2+ DIFFERENT service domains.
+         Or: a multi-step cross-domain workflow where each step proceeds
+         independently upon the previous step's completion.
+       
+       When NO entry_point_dependencies exist or all cross-file calls are
+       within the same service module, keep basic synchronous architecture.
 
     You produce a detailed `blueprint.json` that serves as the single source of truth for the migration.
   tools:
@@ -83,13 +100,18 @@ consistency_validator:
        that actually exist (e.g., handler.lambda_handler → handler.py with lambda_handler).
     4. **Environment Variable Completeness**: Every os.environ / process.env key used in
        handler code must be declared in the Function's Environment.Variables.
-    5. **IAM Policy Alignment**: If handler code uses boto3 DynamoDB/S3/Lambda calls,
-       the Function must have the corresponding SAM policy (DynamoDBCrudPolicy, S3CrudPolicy,
-       LambdaInvokePolicy).
+    5. **IAM Policy Alignment**: If handler code uses boto3 DynamoDB/S3/Lambda/SQS/EventBridge
+       calls, the Function must have the corresponding SAM policy.
     6. **Layer Consistency**: If handler code imports from a shared layer, SharedUtilsLayer
        must exist in template.yaml and be referenced in Layers.
     7. **API Event Matching**: Each Function's Api Event (Path + Method) must be consistent
        with the handler's intended endpoint from blueprint.json.
+    8. **SQS Resource Consistency**: SQS queues in blueprint match template resources;
+       producer Lambdas have SQSSendMessagePolicy + QUEUE_URL env var;
+       consumer Lambdas have SQS Event source mapping.
+    9. **EventBridge Resource Consistency**: EventBridge rules in blueprint match template
+       resources; rule targets have LambdaPermission; producer Lambdas have
+       EventBridgePutEventsPolicy.
 
     When you find mismatches, you fix them directly by modifying the affected files
     (template.yaml or handler code), then re-validate with SAMValidateTool.
