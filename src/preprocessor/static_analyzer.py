@@ -305,6 +305,11 @@ def extract_python_call_graph(
     except SyntaxError:
         return []
 
+    # Annotate parent references for return-value usage analysis
+    for _node in ast.walk(tree):
+        for _child in ast.iter_child_nodes(_node):
+            _child._parent = _node  # type: ignore[attr-defined]
+
     rel_path = str(file_path.relative_to(root).as_posix())
     if app_name:
         rel_path = f"{app_name}/{rel_path}"
@@ -334,8 +339,8 @@ def extract_python_call_graph(
         return []
 
     # Pass 2 — walk functions, collect cross-file call edges
-    edges: List[Dict[str, Any]] = []
-    seen: Set[Tuple[str, str, str]] = set()
+    # Dict-based dedup: same (caller, module, symbol) merges with OR on boolean fields
+    edge_map: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
 
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -365,18 +370,33 @@ def extract_python_call_graph(
                     callee_symbol = name
 
             if callee_module and callee_symbol:
+                # Determine return-value usage from AST parent chain
+                is_awaited = False
+                parent = getattr(child, '_parent', None)
+                if isinstance(parent, ast.Await):
+                    is_awaited = True
+                    parent = getattr(parent, '_parent', None)
+                # ast.Expr = expression used as statement → return value discarded
+                return_value_used = not isinstance(parent, ast.Expr)
+
                 key = (caller_func, callee_module, callee_symbol)
-                if key not in seen:
-                    seen.add(key)
-                    edges.append({
+                if key not in edge_map:
+                    edge_map[key] = {
                         "caller_file": rel_path,
                         "caller_function": caller_func,
                         "caller_line": getattr(child, "lineno", node.lineno),
                         "callee_module": callee_module,
                         "callee_symbol": callee_symbol,
-                    })
+                        "return_value_used": return_value_used,
+                        "is_awaited": is_awaited,
+                    }
+                else:
+                    if return_value_used:
+                        edge_map[key]["return_value_used"] = True
+                    if is_awaited:
+                        edge_map[key]["is_awaited"] = True
 
-    return edges
+    return list(edge_map.values())
 
 
 def _find_function_end_js(lines: List[str], start_idx: int) -> int:
@@ -647,8 +667,22 @@ def extract_js_call_graph(
 
     # ---- Scan source for calls to imported local names ----
     lines = source.splitlines()
-    edges: List[Dict[str, Any]] = []
-    seen: Set[Tuple[str, str, str]] = set()
+    # Dict-based dedup: same (caller, module, symbol) merges with OR on boolean fields
+    edge_map: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+
+    # Detect assignment / return patterns in the text preceding a call
+    _assign_re = re.compile(
+        r'(?:const|let|var)\s+.+=(?!=)\s*(?:await\s*)?$|'
+        r'[A-Za-z_$][\w$.]*\s*(?<!=)=(?!=)\s*(?:await\s*)?$|'
+        r'\breturn\s*(?:await\s*)?$'
+    )
+
+    def _analyze_call_context(line: str, match_start: int) -> Tuple[bool, bool]:
+        """Return (is_awaited, return_value_used) by inspecting line prefix."""
+        prefix = line[:match_start].rstrip()
+        is_awaited = bool(re.search(r'\bawait\b', prefix))
+        return_value_used = bool(_assign_re.search(prefix))
+        return is_awaited, return_value_used
 
     for local_name, module_path in import_map.items():
         escaped = re.escape(local_name)
@@ -664,31 +698,47 @@ def extract_js_call_graph(
             for m in method_re.finditer(line):
                 callee = f"{local_name}.{m.group(1)}"
                 caller = _find_enclosing_js_function(file_symbols, line_no)
+                is_awaited, return_value_used = _analyze_call_context(line, m.start())
+
                 key = (caller, module_path, callee)
-                if key not in seen:
-                    seen.add(key)
-                    edges.append({
+                if key not in edge_map:
+                    edge_map[key] = {
                         "caller_file": rel_path,
                         "caller_function": caller,
                         "caller_line": line_no,
                         "callee_module": module_path,
                         "callee_symbol": callee,
-                    })
+                        "return_value_used": return_value_used,
+                        "is_awaited": is_awaited,
+                    }
+                else:
+                    if return_value_used:
+                        edge_map[key]["return_value_used"] = True
+                    if is_awaited:
+                        edge_map[key]["is_awaited"] = True
 
             for m in direct_re.finditer(line):
                 caller = _find_enclosing_js_function(file_symbols, line_no)
+                is_awaited, return_value_used = _analyze_call_context(line, m.start())
+
                 key = (caller, module_path, local_name)
-                if key not in seen:
-                    seen.add(key)
-                    edges.append({
+                if key not in edge_map:
+                    edge_map[key] = {
                         "caller_file": rel_path,
                         "caller_function": caller,
                         "caller_line": line_no,
                         "callee_module": module_path,
                         "callee_symbol": local_name,
-                    })
+                        "return_value_used": return_value_used,
+                        "is_awaited": is_awaited,
+                    }
+                else:
+                    if return_value_used:
+                        edge_map[key]["return_value_used"] = True
+                    if is_awaited:
+                        edge_map[key]["is_awaited"] = True
 
-    return edges
+    return list(edge_map.values())
 
 
 def analyze_project_config(monolith_root: Path) -> Dict[str, Any]:
@@ -950,16 +1000,22 @@ def build_entry_point_call_map(
         if not matching:
             continue
 
-        seen: Set[Tuple[str, str]] = set()
-        calls: List[Dict[str, str]] = []
+        calls_map: Dict[Tuple[str, str], Dict[str, Any]] = {}
         for e in matching:
             ck = (e["callee_module"], e["callee_symbol"])
-            if ck not in seen:
-                seen.add(ck)
-                calls.append({
+            if ck not in calls_map:
+                calls_map[ck] = {
                     "callee_module": e["callee_module"],
                     "callee_symbol": e["callee_symbol"],
-                })
+                    "return_value_used": e.get("return_value_used", False),
+                    "is_awaited": e.get("is_awaited", False),
+                }
+            else:
+                if e.get("return_value_used"):
+                    calls_map[ck]["return_value_used"] = True
+                if e.get("is_awaited"):
+                    calls_map[ck]["is_awaited"] = True
+        calls = list(calls_map.values())
 
         result.append({
             "entry_point": {

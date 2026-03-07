@@ -91,10 +91,18 @@ tasks:
       
       1. "call_graph": Raw cross-file function call edges.
          Each edge: {caller_file, caller_function, caller_line,
-                     callee_module, callee_symbol}
+                     callee_module, callee_symbol,
+                     return_value_used, is_awaited}
+         
+         - return_value_used (bool): Whether the caller uses the return value
+           (assigned to variable, returned, passed as argument).
+           false = standalone expression statement (fire-and-forget pattern).
+         - is_awaited (bool): Whether the call is preceded by `await`.
+           false + return_value_used=false = classic fire-and-forget.
       
       2. "entry_point_dependencies": Aggregated view per HTTP entry_point.
-         For each entry_point, lists ALL cross-file functions it calls.
+         For each entry_point, lists ALL cross-file functions it calls,
+         each carrying return_value_used and is_awaited fields.
          This is your PRIMARY data source for all Lambda communication design.
       
       STEP-BY-STEP PROCEDURE:
@@ -105,13 +113,23 @@ tasks:
         cross-Lambda relationship.
         If an entry_point only calls functions from its OWN module or
         utility helpers (db clients, validators), it is a simple "Worker"
-        Lambda with NO cross-Lambda invocations.
+        Lambda with NO cross-Lambda invocations, then you don't need to design async resources,
+        straightly set sqs_queues=[], eventbridge_rules=[], lambda_invoke_permissions=[]
+        and skip to Step 4.
       
       Step 2 — CLASSIFY each cross-Lambda relationship:
-        For each relationship, determine the communication mechanism:
-        Q1: Does the caller need the callee's return value for its HTTP response?
-          YES → Synchronous (mechanism A) → record in lambda_invoke_permissions
-          NO  → Q2
+        For each relationship, use the static-analysis fields to determine
+        the communication mechanism:
+        
+        Q1: Does the caller need the callee's return value?
+          Use return_value_used and is_awaited as PRIMARY evidence:
+          - return_value_used=true  → caller depends on result → Synchronous (A)
+          - return_value_used=false, is_awaited=false → fire-and-forget → Async
+          - return_value_used=false, is_awaited=true  → awaited side-effect
+            → likely Async, but verify with function name semantics
+          If Synchronous → record in lambda_invoke_permissions → done
+          If Async → proceed to Q2
+        
         Q2: Does this caller trigger operations in 2+ different service domains?
           YES → EventBridge (mechanism C) → record in eventbridge_rules
           NO  → SQS (mechanism B) → record in sqs_queues
@@ -138,8 +156,10 @@ tasks:
         - Consumer Lambdas still need a handler, runtime, and source_files
       
       IMPORTANT: You do NOT need to use ReadFileTool to read source files
-      for understanding call relationships. The call_graph data provides
-      this mechanically. You SHOULD still use ReadFileTool ONLY for:
+      for understanding call relationships or sync/async classification.
+      The call_graph data provides call edges AND return-value usage
+      signals (return_value_used, is_awaited) mechanically.
+      You SHOULD still use ReadFileTool ONLY for:
       - DynamoDB schema files (listed in dynamodb_info.schema_files)
       
       HOW TO DERIVE source_files for each Lambda:

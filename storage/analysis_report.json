@@ -1,0 +1,559 @@
+{
+  "project_structure": "todo/\n├── config\n│   └── db.js\n├── middleware\n│   └── auth.js\n├── package-lock.json\n├── package.json\n├── routes\n│   ├── auth.js\n│   └── todo.js\n├── scripts\n│   └── init-db.js\n├── server.js\n└── utils\n    └── jwt.js",
+  "entry_points": [
+    {
+      "file": "todo/routes/auth.js",
+      "method": "POST",
+      "path": "/register",
+      "handler_function": "POST__register"
+    },
+    {
+      "file": "todo/routes/auth.js",
+      "method": "POST",
+      "path": "/login",
+      "handler_function": "POST__login"
+    },
+    {
+      "file": "todo/routes/todo.js",
+      "method": "GET",
+      "path": "/item",
+      "handler_function": "GET__item"
+    },
+    {
+      "file": "todo/routes/todo.js",
+      "method": "GET",
+      "path": "/item/:id",
+      "handler_function": "GET__item__id"
+    },
+    {
+      "file": "todo/routes/todo.js",
+      "method": "POST",
+      "path": "/item",
+      "handler_function": "POST__item"
+    },
+    {
+      "file": "todo/routes/todo.js",
+      "method": "PUT",
+      "path": "/item/:id",
+      "handler_function": "PUT__item__id"
+    },
+    {
+      "file": "todo/routes/todo.js",
+      "method": "POST",
+      "path": "/item/:id/done",
+      "handler_function": "POST__item__id_done"
+    },
+    {
+      "file": "todo/routes/todo.js",
+      "method": "DELETE",
+      "path": "/item/:id",
+      "handler_function": "DELETE__item__id"
+    }
+  ],
+  "dependency_graph": {
+    "todo/server.js": [
+      "./routes/auth",
+      "./routes/todo",
+      "cors",
+      "dotenv",
+      "express"
+    ],
+    "todo/config/db.js": [
+      "aws-sdk"
+    ],
+    "todo/middleware/auth.js": [
+      "../utils/jwt"
+    ],
+    "todo/routes/auth.js": [
+      "../config/db",
+      "../utils/jwt",
+      "bcryptjs",
+      "express"
+    ],
+    "todo/routes/todo.js": [
+      "../config/db",
+      "../middleware/auth",
+      "express",
+      "uuid"
+    ],
+    "todo/scripts/init-db.js": [
+      "aws-sdk",
+      "dotenv"
+    ],
+    "todo/utils/jwt.js": [
+      "jsonwebtoken"
+    ]
+  },
+  "file_tags": {
+    "todo/config/db.js": [
+      "DynamoDB"
+    ],
+    "todo/middleware/auth.js": [
+      "Auth"
+    ],
+    "todo/routes/auth.js": [
+      "Auth"
+    ],
+    "todo/scripts/init-db.js": [
+      "DynamoDB"
+    ],
+    "todo/utils/jwt.js": [
+      "Auth"
+    ]
+  },
+  "symbol_table": [
+    {
+      "id": "todo.server.USE__auth",
+      "file_path": "todo/server.js",
+      "start_line": 20,
+      "end_line": 29,
+      "kind": "route_handler"
+    },
+    {
+      "id": "todo.server.USE__api",
+      "file_path": "todo/server.js",
+      "start_line": 21,
+      "end_line": 29,
+      "kind": "route_handler"
+    },
+    {
+      "id": "todo.server.GET__",
+      "file_path": "todo/server.js",
+      "start_line": 23,
+      "end_line": 29,
+      "kind": "route_handler"
+    },
+    {
+      "id": "todo.server.process_on_SIGTERM",
+      "file_path": "todo/server.js",
+      "start_line": 51,
+      "end_line": 54,
+      "kind": "event_handler"
+    },
+    {
+      "id": "todo.server.process_on_SIGINT",
+      "file_path": "todo/server.js",
+      "start_line": 56,
+      "end_line": 59,
+      "kind": "event_handler"
+    },
+    {
+      "id": "todo.middleware.auth.authenticateToken",
+      "file_path": "todo/middleware/auth.js",
+      "start_line": 3,
+      "end_line": 29,
+      "kind": "function"
+    },
+    {
+      "id": "todo.routes.auth.POST__register",
+      "file_path": "todo/routes/auth.js",
+      "start_line": 8,
+      "end_line": 68,
+      "kind": "route_handler"
+    },
+    {
+      "id": "todo.routes.auth.POST__login",
+      "file_path": "todo/routes/auth.js",
+      "start_line": 70,
+      "end_line": 117,
+      "kind": "route_handler"
+    },
+    {
+      "id": "todo.routes.todo.GET__item",
+      "file_path": "todo/routes/todo.js",
+      "start_line": 10,
+      "end_line": 38,
+      "kind": "route_handler"
+    },
+    {
+      "id": "todo.routes.todo.GET__item__id",
+      "file_path": "todo/routes/todo.js",
+      "start_line": 40,
+      "end_line": 75,
+      "kind": "route_handler"
+    },
+    {
+      "id": "todo.routes.todo.POST__item",
+      "file_path": "todo/routes/todo.js",
+      "start_line": 77,
+      "end_line": 115,
+      "kind": "route_handler"
+    },
+    {
+      "id": "todo.routes.todo.PUT__item__id",
+      "file_path": "todo/routes/todo.js",
+      "start_line": 117,
+      "end_line": 165,
+      "kind": "route_handler"
+    },
+    {
+      "id": "todo.routes.todo.POST__item__id_done",
+      "file_path": "todo/routes/todo.js",
+      "start_line": 167,
+      "end_line": 206,
+      "kind": "route_handler"
+    },
+    {
+      "id": "todo.routes.todo.DELETE__item__id",
+      "file_path": "todo/routes/todo.js",
+      "start_line": 208,
+      "end_line": 238,
+      "kind": "route_handler"
+    },
+    {
+      "id": "todo.scripts.init-db.tableExists",
+      "file_path": "todo/scripts/init-db.js",
+      "start_line": 18,
+      "end_line": 28,
+      "kind": "function"
+    },
+    {
+      "id": "todo.scripts.init-db.waitForTable",
+      "file_path": "todo/scripts/init-db.js",
+      "start_line": 30,
+      "end_line": 56,
+      "kind": "function"
+    },
+    {
+      "id": "todo.scripts.init-db.createTodoTable",
+      "file_path": "todo/scripts/init-db.js",
+      "start_line": 58,
+      "end_line": 94,
+      "kind": "function"
+    },
+    {
+      "id": "todo.scripts.init-db.createUserTable",
+      "file_path": "todo/scripts/init-db.js",
+      "start_line": 96,
+      "end_line": 129,
+      "kind": "function"
+    },
+    {
+      "id": "todo.scripts.init-db.main",
+      "file_path": "todo/scripts/init-db.js",
+      "start_line": 131,
+      "end_line": 192,
+      "kind": "function"
+    },
+    {
+      "id": "todo.utils.jwt.generateToken",
+      "file_path": "todo/utils/jwt.js",
+      "start_line": 6,
+      "end_line": 12,
+      "kind": "function"
+    },
+    {
+      "id": "todo.utils.jwt.verifyToken",
+      "file_path": "todo/utils/jwt.js",
+      "start_line": 14,
+      "end_line": 21,
+      "kind": "function"
+    }
+  ],
+  "call_graph": [
+    {
+      "caller_file": "todo/middleware/auth.js",
+      "caller_function": "authenticateToken",
+      "caller_line": 16,
+      "callee_module": "../utils/jwt",
+      "callee_symbol": "verifyToken",
+      "return_value_used": true,
+      "is_awaited": false
+    },
+    {
+      "caller_file": "todo/routes/auth.js",
+      "caller_function": "POST__register",
+      "caller_line": 29,
+      "callee_module": "../config/db",
+      "callee_symbol": "docClient.get",
+      "return_value_used": true,
+      "is_awaited": true
+    },
+    {
+      "caller_file": "todo/routes/auth.js",
+      "caller_function": "POST__register",
+      "caller_line": 51,
+      "callee_module": "../config/db",
+      "callee_symbol": "docClient.put",
+      "return_value_used": false,
+      "is_awaited": true
+    },
+    {
+      "caller_file": "todo/routes/auth.js",
+      "caller_function": "POST__login",
+      "caller_line": 85,
+      "callee_module": "../config/db",
+      "callee_symbol": "docClient.get",
+      "return_value_used": true,
+      "is_awaited": true
+    },
+    {
+      "caller_file": "todo/routes/auth.js",
+      "caller_function": "POST__register",
+      "caller_line": 53,
+      "callee_module": "../utils/jwt",
+      "callee_symbol": "generateToken",
+      "return_value_used": true,
+      "is_awaited": false
+    },
+    {
+      "caller_file": "todo/routes/auth.js",
+      "caller_function": "POST__login",
+      "caller_line": 102,
+      "callee_module": "../utils/jwt",
+      "callee_symbol": "generateToken",
+      "return_value_used": true,
+      "is_awaited": false
+    },
+    {
+      "caller_file": "todo/routes/todo.js",
+      "caller_function": "GET__item",
+      "caller_line": 25,
+      "callee_module": "../config/db",
+      "callee_symbol": "docClient.query",
+      "return_value_used": true,
+      "is_awaited": true
+    },
+    {
+      "caller_file": "todo/routes/todo.js",
+      "caller_function": "GET__item__id",
+      "caller_line": 59,
+      "callee_module": "../config/db",
+      "callee_symbol": "docClient.get",
+      "return_value_used": true,
+      "is_awaited": true
+    },
+    {
+      "caller_file": "todo/routes/todo.js",
+      "caller_function": "POST__item",
+      "caller_line": 102,
+      "callee_module": "../config/db",
+      "callee_symbol": "docClient.put",
+      "return_value_used": false,
+      "is_awaited": true
+    },
+    {
+      "caller_file": "todo/routes/todo.js",
+      "caller_function": "PUT__item__id",
+      "caller_line": 152,
+      "callee_module": "../config/db",
+      "callee_symbol": "docClient.update",
+      "return_value_used": true,
+      "is_awaited": true
+    },
+    {
+      "caller_file": "todo/routes/todo.js",
+      "caller_function": "POST__item__id_done",
+      "caller_line": 193,
+      "callee_module": "../config/db",
+      "callee_symbol": "docClient.update",
+      "return_value_used": true,
+      "is_awaited": true
+    },
+    {
+      "caller_file": "todo/routes/todo.js",
+      "caller_function": "DELETE__item__id",
+      "caller_line": 226,
+      "callee_module": "../config/db",
+      "callee_symbol": "docClient.delete",
+      "return_value_used": false,
+      "is_awaited": true
+    }
+  ],
+  "entry_point_dependencies": [
+    {
+      "entry_point": {
+        "method": "POST",
+        "path": "/register",
+        "file": "todo/routes/auth.js"
+      },
+      "handler_function": "POST__register",
+      "cross_file_calls": [
+        {
+          "callee_module": "../config/db",
+          "callee_symbol": "docClient.get",
+          "return_value_used": true,
+          "is_awaited": true
+        },
+        {
+          "callee_module": "../config/db",
+          "callee_symbol": "docClient.put",
+          "return_value_used": false,
+          "is_awaited": true
+        },
+        {
+          "callee_module": "../utils/jwt",
+          "callee_symbol": "generateToken",
+          "return_value_used": true,
+          "is_awaited": false
+        }
+      ]
+    },
+    {
+      "entry_point": {
+        "method": "POST",
+        "path": "/login",
+        "file": "todo/routes/auth.js"
+      },
+      "handler_function": "POST__login",
+      "cross_file_calls": [
+        {
+          "callee_module": "../config/db",
+          "callee_symbol": "docClient.get",
+          "return_value_used": true,
+          "is_awaited": true
+        },
+        {
+          "callee_module": "../utils/jwt",
+          "callee_symbol": "generateToken",
+          "return_value_used": true,
+          "is_awaited": false
+        }
+      ]
+    },
+    {
+      "entry_point": {
+        "method": "GET",
+        "path": "/item",
+        "file": "todo/routes/todo.js"
+      },
+      "handler_function": "GET__item",
+      "cross_file_calls": [
+        {
+          "callee_module": "../config/db",
+          "callee_symbol": "docClient.query",
+          "return_value_used": true,
+          "is_awaited": true
+        }
+      ]
+    },
+    {
+      "entry_point": {
+        "method": "GET",
+        "path": "/item/:id",
+        "file": "todo/routes/todo.js"
+      },
+      "handler_function": "GET__item__id",
+      "cross_file_calls": [
+        {
+          "callee_module": "../config/db",
+          "callee_symbol": "docClient.get",
+          "return_value_used": true,
+          "is_awaited": true
+        }
+      ]
+    },
+    {
+      "entry_point": {
+        "method": "POST",
+        "path": "/item",
+        "file": "todo/routes/todo.js"
+      },
+      "handler_function": "POST__item",
+      "cross_file_calls": [
+        {
+          "callee_module": "../config/db",
+          "callee_symbol": "docClient.put",
+          "return_value_used": false,
+          "is_awaited": true
+        }
+      ]
+    },
+    {
+      "entry_point": {
+        "method": "PUT",
+        "path": "/item/:id",
+        "file": "todo/routes/todo.js"
+      },
+      "handler_function": "PUT__item__id",
+      "cross_file_calls": [
+        {
+          "callee_module": "../config/db",
+          "callee_symbol": "docClient.update",
+          "return_value_used": true,
+          "is_awaited": true
+        }
+      ]
+    },
+    {
+      "entry_point": {
+        "method": "POST",
+        "path": "/item/:id/done",
+        "file": "todo/routes/todo.js"
+      },
+      "handler_function": "POST__item__id_done",
+      "cross_file_calls": [
+        {
+          "callee_module": "../config/db",
+          "callee_symbol": "docClient.update",
+          "return_value_used": true,
+          "is_awaited": true
+        }
+      ]
+    },
+    {
+      "entry_point": {
+        "method": "DELETE",
+        "path": "/item/:id",
+        "file": "todo/routes/todo.js"
+      },
+      "handler_function": "DELETE__item__id",
+      "cross_file_calls": [
+        {
+          "callee_module": "../config/db",
+          "callee_symbol": "docClient.delete",
+          "return_value_used": false,
+          "is_awaited": true
+        }
+      ]
+    }
+  ],
+  "config_info": {
+    "nodejs_dependencies": {
+      "dependencies": [
+        {
+          "name": "express",
+          "version": "^4.18.2"
+        },
+        {
+          "name": "cors",
+          "version": "^2.8.5"
+        },
+        {
+          "name": "aws-sdk",
+          "version": "^2.823.0"
+        },
+        {
+          "name": "uuid",
+          "version": "^8.3.2"
+        },
+        {
+          "name": "jsonwebtoken",
+          "version": "^9.0.2"
+        },
+        {
+          "name": "bcryptjs",
+          "version": "^2.4.3"
+        },
+        {
+          "name": "dotenv",
+          "version": "^16.0.3"
+        }
+      ],
+      "devDependencies": [
+        {
+          "name": "nodemon",
+          "version": "^2.0.22"
+        }
+      ]
+    }
+  },
+  "dynamodb_info": {
+    "used": true,
+    "probable_tables": [],
+    "schema_files": [
+      "todo/scripts/init-db.js",
+      "todo/config/db.js"
+    ]
+  }
+}
